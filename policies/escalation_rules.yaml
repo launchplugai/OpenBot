@@ -1,0 +1,70 @@
+# Openbot Escalation Rules - Phase 1
+# These rules define when and how to escalate failures
+
+version: v1
+
+rules:
+  - id: test_failure
+    description: "Tests failed with non-zero exit code"
+    trigger:
+      condition: test.exit_code != 0
+    severity: high
+    action:
+      type: log_and_fail
+      message: "Test execution failed"
+    phase: 1
+
+  - id: missing_permissions
+    description: "Required directories not writable"
+    trigger:
+      condition: doctor.writable_dirs == false
+    severity: critical
+    action:
+      type: abort
+      message: "Cannot write to required directories"
+    phase: 1
+
+  - id: receipt_validation_failed
+    description: "Receipt JSON failed schema validation"
+    trigger:
+      condition: receipt.valid == false
+    severity: critical
+    action:
+      type: quarantine
+      message: "Receipt failed validation, quarantined"
+    phase: 1
+
+  - id: git_clone_failed
+    description: "Failed to clone target repository"
+    trigger:
+      condition: git.clone_exit_code != 0
+    severity: high
+    action:
+      type: log_and_fail
+      message: "Git clone failed"
+    phase: 1
+
+  - id: git_checkout_failed
+    description: "Failed to checkout target branch"
+    trigger:
+      condition: git.checkout_exit_code != 0
+    severity: high
+    action:
+      type: log_and_fail
+      message: "Git checkout failed"
+    phase: 1
+
+  - id: health_check_failed
+    description: "Health check URL returned non-2xx status"
+    trigger:
+      condition: health.ok == false
+    severity: medium
+    action:
+      type: log_and_continue
+      message: "Health check failed but run continues"
+    phase: 1
+
+# Future phases will add:
+# - Notification rules (Phase 2)
+# - Auto-retry rules (Phase 2)
+# - Claude escalation (Phase 3)

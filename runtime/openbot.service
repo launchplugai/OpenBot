@@ -1,0 +1,49 @@
+# Openbot Systemd Service
+#
+# This service file is for on-demand execution via CLI.
+# Phase 1 does not include automated triggering.
+#
+# Install:
+#   sudo cp openbot.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#
+# Usage (manual invocation):
+#   sudo systemctl start openbot@"target-repo,branch,command"
+#
+# Note: Phase 1 is primarily CLI-driven. This service is a placeholder
+# for Phase 2 when automated scheduling/triggering is implemented.
+
+[Unit]
+Description=Openbot Automation Runtime
+Documentation=https://github.com/launchplugai/openbot
+After=network.target
+
+[Service]
+Type=oneshot
+User=openbot
+Group=openbot
+WorkingDirectory=/var/lib/openbot
+
+# Environment
+Environment=PYTHONPATH=/opt/openbot
+Environment=OPENBOT_HOME=/var/lib/openbot
+
+# Execution
+ExecStart=/usr/local/bin/openbot doctor
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/openbot
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+
+# Resource limits
+TimeoutStartSec=600
+MemoryMax=1G
+
+[Install]
+WantedBy=multi-user.target

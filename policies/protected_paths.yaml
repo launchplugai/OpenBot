@@ -1,0 +1,39 @@
+# Openbot Protected Paths - Phase 1
+# These paths should not be modified by automated runs
+
+version: v1
+
+# Protected path patterns (glob syntax)
+protected_globs:
+  # Core runtime - never modify
+  - "runtime/**"
+  - "openbot/**"
+  - "policies/**"
+
+  # Scripts - manual changes only
+  - "scripts/**"
+
+  # Documentation - human-authored
+  - "docs/**"
+  - "PRD.md"
+  - "README.md"
+
+  # Configuration files
+  - "*.yaml"
+  - "*.json"
+  - "requirements.txt"
+  - "setup.py"
+  - "pyproject.toml"
+
+  # Git internals
+  - ".git/**"
+  - ".gitignore"
+
+# Paths that are explicitly allowed for write
+allowed_write_paths:
+  - "logs/**"
+  - "receipts/**"
+  - "workdir/**"
+
+# Note: In Phase 1, these are loaded but not enforced.
+# Full enforcement comes in Phase 2 with the deploy loop.

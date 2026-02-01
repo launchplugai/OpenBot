@@ -1,0 +1,121 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://openbot.local/schemas/receipt_v1.json",
+  "title": "Openbot Receipt v1",
+  "description": "Schema for Openbot run receipts",
+  "type": "object",
+  "required": [
+    "receipt_version",
+    "timestamp",
+    "run_id",
+    "target_repo",
+    "target_branch",
+    "commit_sha",
+    "test",
+    "overall_status",
+    "errors"
+  ],
+  "properties": {
+    "receipt_version": {
+      "type": "string",
+      "const": "v1",
+      "description": "Schema version identifier"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC ISO8601 timestamp of run completion"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "Unique run identifier (UUID)"
+    },
+    "target_repo": {
+      "type": "string",
+      "description": "Git repository URL"
+    },
+    "target_branch": {
+      "type": "string",
+      "description": "Git branch name"
+    },
+    "commit_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$",
+      "description": "Full Git commit SHA"
+    },
+    "test": {
+      "type": "object",
+      "required": ["command", "exit_code", "summary", "log_path"],
+      "properties": {
+        "command": {
+          "type": "string",
+          "description": "Test command executed"
+        },
+        "exit_code": {
+          "type": "integer",
+          "description": "Exit code of test command"
+        },
+        "summary": {
+          "type": "string",
+          "enum": ["passed", "failed"],
+          "description": "Basic test result summary"
+        },
+        "log_path": {
+          "type": "string",
+          "description": "Path to log file"
+        }
+      },
+      "additionalProperties": false
+    },
+    "health": {
+      "type": ["object", "null"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Health check URL"
+        },
+        "status_code": {
+          "type": ["integer", "null"],
+          "description": "HTTP status code"
+        },
+        "body_snippet": {
+          "type": ["string", "null"],
+          "maxLength": 500,
+          "description": "First 500 characters of response body"
+        },
+        "ok": {
+          "type": "boolean",
+          "description": "Whether health check passed"
+        },
+        "log_path": {
+          "type": ["string", "null"],
+          "description": "Path to health check log if separate"
+        }
+      },
+      "required": ["url", "status_code", "ok"],
+      "additionalProperties": false
+    },
+    "overall_status": {
+      "type": "string",
+      "enum": ["SUCCESS", "FAILED"],
+      "description": "Overall run status"
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Array of error messages (empty on success)"
+    },
+    "policies_loaded": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "List of policy files loaded during run"
+    }
+  },
+  "additionalProperties": false
+}
