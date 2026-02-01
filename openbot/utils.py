@@ -33,14 +33,22 @@ def ensure_dir(path: Path) -> bool:
 
 
 def is_writable(path: Path) -> bool:
-    """Check if a path is writable."""
-    if path.exists():
-        return os.access(path, os.W_OK)
-    # Check if we can create it
+    """Check if a path is writable. Never raises exceptions."""
     try:
+        if path.exists():
+            return os.access(path, os.W_OK)
+        # Check if we can create it
         path.mkdir(parents=True, exist_ok=True)
         return os.access(path, os.W_OK)
-    except OSError:
+    except (OSError, PermissionError):
+        return False
+
+
+def safe_path_exists(path: Path) -> bool:
+    """Check if path exists without raising PermissionError."""
+    try:
+        return path.exists()
+    except (OSError, PermissionError):
         return False
 
 

@@ -19,14 +19,19 @@ This document describes how to operate Openbot in Phase 1 (manual execution mode
 # Connect via SSM
 aws ssm start-session --target i-xxxxxxxxxxxx
 
-# Clone the openbot repo
-cd /opt
-sudo git clone https://github.com/launchplugai/openbot.git
-cd openbot
+# Clone the openbot repo to /opt/openbot
+sudo git clone https://github.com/launchplugai/openbot.git /opt/openbot
+cd /opt/openbot
 
-# Run installation
+# Run installation (creates venv at /opt/openbot/venv)
 sudo ./scripts/install.sh
 ```
+
+The installer:
+- Creates a Python virtual environment at `/opt/openbot/venv`
+- Installs openbot in editable mode via `pip install -e`
+- Creates `/usr/local/bin/openbot` wrapper script
+- Is idempotent (safe to re-run)
 
 ### Local Development
 
@@ -35,8 +40,8 @@ sudo ./scripts/install.sh
 git clone https://github.com/launchplugai/openbot.git
 cd openbot
 
-# No installation needed - run directly
-python -m openbot.cli doctor --local
+# No installation needed - run directly with --local flag
+python3 -m openbot.cli doctor --local
 ```
 
 ## Commands
@@ -55,10 +60,16 @@ python -m openbot.cli doctor --local
 
 **Output**: JSON report to stdout + log file
 
+**Report file fallback**: If the primary logs directory is not writable (e.g., permission denied),
+doctor will attempt to write the report to `/tmp`, then current directory as fallback.
+
 **Exit codes**:
 - `0`: HEALTHY - all checks passed
 - `1`: DEGRADED - some non-critical issues
 - `2`: UNHEALTHY - critical issues found
+
+**Note**: Doctor never crashes on permission errors. If directories cannot be accessed,
+they are reported as not writable in the JSON output and `overall_status` is UNHEALTHY.
 
 **Example output**:
 ```json

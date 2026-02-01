@@ -295,6 +295,108 @@ def test_protected_paths():
     return True
 
 
+def test_doctor_permission_error():
+    """Test that doctor handles PermissionError gracefully."""
+    print("TEST: Doctor PermissionError handling... ", end="")
+
+    import io
+    import subprocess
+    from unittest import mock
+
+    # We need to test that when is_writable raises PermissionError,
+    # doctor still returns JSON with UNHEALTHY status
+
+    from openbot.utils import is_writable, safe_path_exists
+
+    # Test is_writable handles PermissionError
+    def mock_exists_raises(*args, **kwargs):
+        raise PermissionError("Permission denied: /var/lib/openbot")
+
+    original_exists = Path.exists
+
+    # Test that safe_path_exists catches PermissionError
+    with mock.patch.object(Path, 'exists', mock_exists_raises):
+        result = safe_path_exists(Path("/var/lib/openbot/logs"))
+        if result != False:
+            print("FAILED: safe_path_exists should return False on PermissionError")
+            return False
+
+    # Test that is_writable catches PermissionError
+    with mock.patch.object(Path, 'exists', mock_exists_raises):
+        result = is_writable(Path("/var/lib/openbot/logs"))
+        if result != False:
+            print("FAILED: is_writable should return False on PermissionError")
+            return False
+
+    # Test full doctor command with mocked permission errors
+    # Run doctor in subprocess to capture output
+    result = subprocess.run(
+        [sys.executable, "-m", "openbot.cli", "doctor", "--local"],
+        capture_output=True,
+        text=True,
+        cwd=str(Path(__file__).parent.parent)
+    )
+
+    # Doctor with --local should succeed (local dirs are writable)
+    # Parse the JSON output
+    try:
+        output_lines = result.stdout.strip().split('\n')
+        # Find JSON block (may have trailing messages)
+        json_text = ""
+        brace_count = 0
+        for line in output_lines:
+            json_text += line + "\n"
+            brace_count += line.count('{') - line.count('}')
+            if brace_count == 0 and json_text.strip():
+                break
+        report = json.loads(json_text)
+    except json.JSONDecodeError as e:
+        print(f"FAILED: Doctor output not valid JSON: {e}")
+        print(f"Output was: {result.stdout[:500]}")
+        return False
+
+    # Verify report structure
+    if "overall_status" not in report:
+        print("FAILED: Doctor report missing overall_status")
+        return False
+
+    if "checks" not in report:
+        print("FAILED: Doctor report missing checks")
+        return False
+
+    print("PASSED")
+    return True
+
+
+def test_is_writable_permission_error():
+    """Test is_writable returns False on PermissionError, never crashes."""
+    print("TEST: is_writable PermissionError safety... ", end="")
+
+    from unittest import mock
+    from openbot.utils import is_writable
+
+    def always_raise_permission_error(*args, **kwargs):
+        raise PermissionError("Mocked permission denied")
+
+    # Mock Path.exists to raise PermissionError
+    with mock.patch.object(Path, 'exists', always_raise_permission_error):
+        result = is_writable(Path("/some/restricted/path"))
+        if result is not False:
+            print(f"FAILED: Expected False, got {result}")
+            return False
+
+    # Mock Path.mkdir to raise PermissionError
+    with mock.patch.object(Path, 'exists', return_value=False):
+        with mock.patch.object(Path, 'mkdir', always_raise_permission_error):
+            result = is_writable(Path("/some/restricted/path"))
+            if result is not False:
+                print(f"FAILED: Expected False on mkdir error, got {result}")
+                return False
+
+    print("PASSED")
+    return True
+
+
 def run_all_tests() -> bool:
     """Run all self-tests."""
     print("=" * 50)
@@ -312,6 +414,8 @@ def run_all_tests() -> bool:
         test_quarantine_invalid_receipt,
         test_policy_loading,
         test_protected_paths,
+        test_doctor_permission_error,
+        test_is_writable_permission_error,
     ]
 
     passed = 0

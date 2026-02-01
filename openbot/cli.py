@@ -16,6 +16,7 @@ from typing import Dict, Any, List
 from openbot.utils import (
     find_binary,
     is_writable,
+    safe_path_exists,
     ensure_dir,
     get_timestamp,
     generate_run_id,
@@ -54,6 +55,7 @@ def cmd_doctor(args) -> int:
     - Policies can be loaded
 
     Returns 0 if healthy, non-zero otherwise.
+    Always outputs JSON report, even on errors.
     """
     logs_dir, receipts_dir, workdir = get_paths(args.local)
     run_id = generate_run_id()
@@ -82,7 +84,7 @@ def cmd_doctor(args) -> int:
             binaries_ok = False
             report["errors"].append(f"Required binary not found: {binary}")
 
-    # Check writable directories
+    # Check writable directories (with PermissionError handling)
     dirs_to_check = {
         "logs": logs_dir,
         "receipts": receipts_dir,
@@ -92,11 +94,13 @@ def cmd_doctor(args) -> int:
     report["checks"]["directories"] = {}
 
     for name, dir_path in dirs_to_check.items():
+        # is_writable and safe_path_exists never raise PermissionError
         writable = is_writable(dir_path)
+        exists = safe_path_exists(dir_path)
         report["checks"]["directories"][name] = {
             "path": str(dir_path),
             "writable": writable,
-            "exists": dir_path.exists()
+            "exists": exists
         }
         if not writable:
             dirs_ok = False
@@ -120,14 +124,12 @@ def cmd_doctor(args) -> int:
     else:
         report["overall_status"] = "HEALTHY"
 
-    # Output to stdout
+    # Output to stdout (always)
     print(json.dumps(report, indent=2))
 
-    # Write to logs if possible
-    if is_writable(logs_dir):
-        ensure_dir(logs_dir)
-        log_path = logs_dir / f"doctor_{run_id}.json"
-        save_json(log_path, report)
+    # Write report to disk with fallback paths
+    log_path = _write_doctor_report(report, run_id, logs_dir)
+    if log_path:
         print(f"\nDoctor report written to: {log_path}", file=sys.stderr)
 
     # Return appropriate exit code
@@ -137,6 +139,35 @@ def cmd_doctor(args) -> int:
         return 1
     else:
         return 2
+
+
+def _write_doctor_report(report: Dict[str, Any], run_id: str, primary_logs_dir: Path) -> str:
+    """
+    Write doctor report to disk with fallback paths.
+
+    Tries in order:
+    1. Primary logs directory (e.g., /var/lib/openbot/logs or ./logs)
+    2. /tmp
+    3. Current working directory
+
+    Returns the path where report was written, or empty string on failure.
+    """
+    fallback_dirs = [
+        primary_logs_dir,
+        Path("/tmp"),
+        Path(".")
+    ]
+
+    filename = f"doctor_{run_id}.json"
+
+    for logs_dir in fallback_dirs:
+        if is_writable(logs_dir):
+            ensure_dir(logs_dir)
+            log_path = logs_dir / filename
+            if save_json(log_path, report):
+                return str(log_path)
+
+    return ""
 
 
 def cmd_run(args) -> int:

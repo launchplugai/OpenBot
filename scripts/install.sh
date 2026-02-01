@@ -60,22 +60,54 @@ echo "=== Step 4: Installing Openbot package ==="
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
-# Copy openbot package to a system location
+# Install directory
 INSTALL_DIR="/opt/openbot"
-mkdir -p "$INSTALL_DIR"
-cp -r "$REPO_ROOT/openbot" "$INSTALL_DIR/"
-cp -r "$REPO_ROOT/policies" "$INSTALL_DIR/"
 
-# Create symlink for easy execution
-cat > /usr/local/bin/openbot << 'EOF'
+# If repo is not already at /opt/openbot, sync it there
+if [[ "$(realpath "$REPO_ROOT")" != "$(realpath "$INSTALL_DIR" 2>/dev/null || echo "$INSTALL_DIR")" ]]; then
+    echo "Syncing repo from $REPO_ROOT to $INSTALL_DIR..."
+    mkdir -p "$INSTALL_DIR"
+    # Use rsync if available, fallback to cp
+    if command -v rsync &>/dev/null; then
+        rsync -a --exclude='.git' --exclude='venv' --exclude='__pycache__' \
+            --exclude='*.pyc' "$REPO_ROOT/" "$INSTALL_DIR/"
+    else
+        # Manual copy avoiding venv and pycache
+        find "$REPO_ROOT" -maxdepth 1 -mindepth 1 \
+            ! -name '.git' ! -name 'venv' ! -name '__pycache__' \
+            -exec cp -r {} "$INSTALL_DIR/" \;
+    fi
+else
+    echo "Repo already at $INSTALL_DIR"
+fi
+
+# Install python3-venv if not present
+apt-get install -y -qq python3-venv 2>/dev/null || true
+
+# Create virtual environment (idempotent)
+VENV_DIR="$INSTALL_DIR/venv"
+if [[ ! -d "$VENV_DIR" ]]; then
+    echo "Creating virtual environment at $VENV_DIR..."
+    python3 -m venv "$VENV_DIR"
+else
+    echo "Virtual environment already exists at $VENV_DIR"
+fi
+
+# Upgrade pip and install openbot in editable mode
+echo "Installing openbot package into venv..."
+"$VENV_DIR/bin/pip" install --upgrade pip -q
+"$VENV_DIR/bin/pip" install -e "$INSTALL_DIR" -q
+
+# Create /usr/local/bin/openbot wrapper
+echo "Creating /usr/local/bin/openbot wrapper..."
+cat > /usr/local/bin/openbot << EOF
 #!/bin/bash
-exec python3 -m openbot.cli "$@"
+exec $VENV_DIR/bin/python -m openbot.cli "\$@"
 EOF
 chmod +x /usr/local/bin/openbot
 
-# Add to PYTHONPATH
-echo "export PYTHONPATH=/opt/openbot:\$PYTHONPATH" > /etc/profile.d/openbot.sh
-chmod +x /etc/profile.d/openbot.sh
+# Remove old PYTHONPATH profile script if exists (no longer needed with venv)
+rm -f /etc/profile.d/openbot.sh 2>/dev/null || true
 
 echo ""
 echo "=== Step 5: Installing systemd service ==="
@@ -91,10 +123,13 @@ echo ""
 echo "=== Installation Complete ==="
 echo ""
 echo "Verify installation with:"
-echo "  openbot doctor --local"
+echo "  openbot doctor"
 echo ""
 echo "Run a test with:"
-echo "  openbot run --target-repo <url> --target-branch <branch> --command '<cmd>' --local"
+echo "  openbot run --target-repo <url> --target-branch <branch> --command '<cmd>'"
+echo ""
+echo "For local development (no system install):"
+echo "  python3 -m openbot.cli doctor --local"
 echo ""
 echo "Directories created:"
 for dir in "${OPENBOT_DIRS[@]}"; do

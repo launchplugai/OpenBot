@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openbot"
+version = "0.1.0"
+description = "Openbot Automation Runtime"
+readme = "PRD.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Openbot Team"}
+]
+
+# No runtime dependencies - stdlib only
+dependencies = []
+
+[project.scripts]
+openbot = "openbot.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["openbot*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.yaml", "*.json"]
