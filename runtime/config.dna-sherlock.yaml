@@ -12,9 +12,12 @@ target_repo: "https://github.com/launchplugai/DNA"
 # Branch to checkout
 target_branch: "main"
 
-# Command to execute (setup + tests)
+# Setup command (install dependencies)
+setup_command: "pip install -r requirements.txt"
+
+# Test command to execute
 # Note: pytest app/tests -v avoids dormant module errors
-command: "pip install -r requirements.txt && pytest app/tests -v"
+command: "pytest app/tests -v"
 
 # Optional: Health check URL (uncomment to enable)
 # The server must be running for this to work

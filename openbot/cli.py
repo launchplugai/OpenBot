@@ -204,7 +204,8 @@ def cmd_run(args) -> int:
         command=args.command,
         logs_dir=logs_dir,
         receipts_dir=receipts_dir,
-        health_url=args.health_url
+        health_url=args.health_url,
+        setup_command=getattr(args, 'setup_command', None)
     )
 
     # Execute run
@@ -263,6 +264,10 @@ def main():
         "--command",
         required=True,
         help="Test command to execute"
+    )
+    run_parser.add_argument(
+        "--setup-command",
+        help="Optional setup command to run before tests (e.g., pip install -r requirements.txt)"
     )
     run_parser.add_argument(
         "--health-url",

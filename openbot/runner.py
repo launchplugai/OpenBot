@@ -3,6 +3,9 @@ Runner module - executes test runs against target repositories.
 """
 
 import os
+import re
+import shutil
+import time
 import traceback
 import urllib.request
 import urllib.error
@@ -21,6 +24,35 @@ from openbot.utils import (
 )
 
 
+def parse_pytest_output(output: str) -> Tuple[Optional[int], Optional[int]]:
+    """
+    Parse pytest output to extract pass/fail counts.
+
+    Looks for patterns like:
+    - "831 passed, 9 failed"
+    - "831 passed"
+    - "9 failed"
+    - "===== 831 passed, 9 failed in 5.23s ====="
+
+    Returns: (passed_count, failed_count) - either can be None if not found
+    """
+    passed = None
+    failed = None
+
+    # Match pytest summary line patterns
+    # Pattern: "X passed" or "X passed,"
+    passed_match = re.search(r'(\d+)\s+passed', output)
+    if passed_match:
+        passed = int(passed_match.group(1))
+
+    # Pattern: "X failed" or "X failed,"
+    failed_match = re.search(r'(\d+)\s+failed', output)
+    if failed_match:
+        failed = int(failed_match.group(1))
+
+    return passed, failed
+
+
 class Runner:
     """Executes Openbot runs against target repositories."""
 
@@ -34,16 +66,20 @@ class Runner:
         receipts_dir: Path,
         health_url: Optional[str] = None,
         policies_dir: Optional[Path] = None,
+        setup_command: Optional[str] = None,
     ):
         self.target_repo = target_repo
         self.target_branch = target_branch
-        self.workdir = Path(workdir)
+        self.base_workdir = Path(workdir)
         self.command = command
+        self.setup_command = setup_command
         self.logs_dir = Path(logs_dir)
         self.receipts_dir = Path(receipts_dir)
         self.health_url = health_url
 
         self.run_id = generate_run_id()
+        # Fresh workdir per run: /var/lib/openbot/workdir/<run_id>/
+        self.workdir = self.base_workdir / self.run_id
         self.target_dir = self.workdir / "target"
         self.log_path = self.logs_dir / f"{self.run_id}.log"
 
@@ -65,6 +101,8 @@ class Runner:
         ensure_dir(self.logs_dir)
         ensure_dir(self.workdir)
 
+        start_time = time.time()
+
         with Logger(self.log_path, also_stdout=True) as logger:
             try:
                 logger.info(f"=== Openbot Run Started ===")
@@ -72,85 +110,90 @@ class Runner:
                 logger.info(f"Target repo: {self.target_repo}")
                 logger.info(f"Target branch: {self.target_branch}")
                 logger.info(f"Workdir: {self.workdir}")
-                logger.info(f"Command: {self.command}")
+                if self.setup_command:
+                    logger.info(f"Setup command: {self.setup_command}")
+                logger.info(f"Test command: {self.command}")
 
-                # Step 1: Clone or fetch repository
-                commit_sha = self._clone_or_fetch(logger)
+                # Step 1: Clone repository (always fresh clone per run)
+                commit_sha = self._clone_repo(logger)
                 if not commit_sha:
-                    self.receipt.add_error("Failed to clone/fetch repository")
+                    self.receipt.add_error("Failed to clone repository")
                     self.receipt.set_target(self.target_repo, self.target_branch, "0" * 40)
-                    self.receipt.set_test_result(self.command, -1, str(self.log_path))
-                    return self._finalize_receipt(logger)
+                    runtime = round(time.time() - start_time, 2)
+                    self.receipt.set_test_result(
+                        self.command, -1, str(self.log_path),
+                        runtime_seconds=runtime,
+                        setup_command=self.setup_command
+                    )
+                    return self._finalize_receipt(logger, cleanup=True)
 
                 self.receipt.set_target(self.target_repo, self.target_branch, commit_sha)
                 logger.info(f"Commit SHA: {commit_sha}")
 
-                # Step 2: Run test command
-                test_exit_code = self._run_test_command(logger)
-                self.receipt.set_test_result(self.command, test_exit_code, str(self.log_path))
+                # Step 2: Run setup command (optional)
+                if self.setup_command:
+                    setup_exit_code = self._run_setup_command(logger)
+                    if setup_exit_code != 0:
+                        self.receipt.add_error(f"Setup command failed with exit code {setup_exit_code}")
+                        runtime = round(time.time() - start_time, 2)
+                        self.receipt.set_test_result(
+                            self.command, -1, str(self.log_path),
+                            runtime_seconds=runtime,
+                            setup_command=self.setup_command
+                        )
+                        return self._finalize_receipt(logger, cleanup=True)
 
-                # Step 3: Optional health check
+                # Step 3: Run test command
+                test_exit_code, test_output = self._run_test_command(logger)
+
+                # Parse pytest output for pass/fail counts
+                passed, failed = parse_pytest_output(test_output)
+                logger.info(f"Pytest results: passed={passed}, failed={failed}")
+
+                runtime = round(time.time() - start_time, 2)
+                self.receipt.set_test_result(
+                    self.command, test_exit_code, str(self.log_path),
+                    passed=passed,
+                    failed=failed,
+                    runtime_seconds=runtime,
+                    setup_command=self.setup_command
+                )
+
+                # Step 4: Optional health check
                 if self.health_url:
                     self._run_health_check(logger)
 
-                logger.info(f"=== Openbot Run Completed ===")
-                return self._finalize_receipt(logger)
+                logger.info(f"=== Openbot Run Completed (runtime: {runtime}s) ===")
+                return self._finalize_receipt(logger, cleanup=True)
 
             except Exception as e:
                 logger.error(f"Unexpected error: {e}")
                 logger.error(traceback.format_exc())
                 self.receipt.add_error(f"Unexpected error: {e}")
                 self.receipt.set_target(self.target_repo, self.target_branch, "0" * 40)
-                self.receipt.set_test_result(self.command, -1, str(self.log_path))
-                return self._finalize_receipt(logger)
+                runtime = round(time.time() - start_time, 2)
+                self.receipt.set_test_result(
+                    self.command, -1, str(self.log_path),
+                    runtime_seconds=runtime,
+                    setup_command=self.setup_command
+                )
+                return self._finalize_receipt(logger, cleanup=True)
 
-    def _clone_or_fetch(self, logger: Logger) -> Optional[str]:
-        """Clone repository or fetch if already exists. Returns commit SHA or None."""
-        if self.target_dir.exists():
-            # Fetch and checkout
-            logger.info(f"Target directory exists, fetching updates...")
+    def _clone_repo(self, logger: Logger) -> Optional[str]:
+        """Clone repository fresh (workdir is unique per run). Returns commit SHA or None."""
+        logger.info(f"Cloning repository...")
+        ensure_dir(self.workdir)
 
-            # Fetch
-            exit_code, stdout, stderr = run_command(
-                f"git fetch origin {self.target_branch}",
-                cwd=self.target_dir
-            )
-            logger.command(f"git fetch origin {self.target_branch}", exit_code, stdout, stderr)
-            if exit_code != 0:
-                return None
-
-            # Checkout
-            exit_code, stdout, stderr = run_command(
-                f"git checkout {self.target_branch}",
-                cwd=self.target_dir
-            )
-            logger.command(f"git checkout {self.target_branch}", exit_code, stdout, stderr)
-            if exit_code != 0:
-                return None
-
-            # Reset to origin
-            exit_code, stdout, stderr = run_command(
-                f"git reset --hard origin/{self.target_branch}",
-                cwd=self.target_dir
-            )
-            logger.command(f"git reset --hard origin/{self.target_branch}", exit_code, stdout, stderr)
-            if exit_code != 0:
-                return None
-        else:
-            # Clone fresh
-            logger.info(f"Cloning repository...")
-            ensure_dir(self.workdir)
-
-            exit_code, stdout, stderr = run_command(
-                f"git clone --branch {self.target_branch} {self.target_repo} target",
-                cwd=self.workdir
-            )
-            logger.command(
-                f"git clone --branch {self.target_branch} {self.target_repo} target",
-                exit_code, stdout, stderr
-            )
-            if exit_code != 0:
-                return None
+        exit_code, stdout, stderr = run_command(
+            f"git clone --branch {self.target_branch} {self.target_repo} target",
+            cwd=self.workdir
+        )
+        logger.command(
+            f"git clone --branch {self.target_branch} {self.target_repo} target",
+            exit_code, stdout, stderr
+        )
+        if exit_code != 0:
+            return None
 
         # Get commit SHA
         exit_code, stdout, stderr = run_command(
@@ -163,8 +206,26 @@ class Runner:
 
         return stdout.strip()
 
-    def _run_test_command(self, logger: Logger) -> int:
-        """Run the test command. Returns exit code."""
+    def _run_setup_command(self, logger: Logger) -> int:
+        """Run the setup command (e.g., pip install). Returns exit code."""
+        logger.info(f"Running setup command: {self.setup_command}")
+
+        exit_code, stdout, stderr = run_command(
+            self.setup_command,
+            cwd=self.target_dir,
+            timeout=600  # 10 minute timeout
+        )
+        logger.command(self.setup_command, exit_code, stdout, stderr)
+
+        if exit_code != 0:
+            logger.error(f"Setup command failed with exit code {exit_code}")
+        else:
+            logger.info(f"Setup command succeeded")
+
+        return exit_code
+
+    def _run_test_command(self, logger: Logger) -> Tuple[int, str]:
+        """Run the test command. Returns (exit_code, combined_output)."""
         logger.info(f"Running test command: {self.command}")
 
         exit_code, stdout, stderr = run_command(
@@ -179,7 +240,9 @@ class Runner:
         else:
             logger.info(f"Test command succeeded")
 
-        return exit_code
+        # Return combined output for parsing
+        combined_output = stdout + "\n" + stderr
+        return exit_code, combined_output
 
     def _run_health_check(self, logger: Logger):
         """Run optional health check."""
@@ -220,8 +283,18 @@ class Runner:
                 ok=False
             )
 
-    def _finalize_receipt(self, logger: Logger) -> Tuple[bool, str]:
-        """Finalize and write the receipt."""
+    def _cleanup_workdir(self, logger: Logger):
+        """Remove the run-specific workdir after run completes."""
+        if self.workdir.exists():
+            logger.info(f"Cleaning up workdir: {self.workdir}")
+            try:
+                shutil.rmtree(self.workdir)
+                logger.info(f"Workdir cleaned up successfully")
+            except Exception as e:
+                logger.warn(f"Failed to cleanup workdir: {e}")
+
+    def _finalize_receipt(self, logger: Logger, cleanup: bool = False) -> Tuple[bool, str]:
+        """Finalize and write the receipt, optionally cleanup workdir."""
         receipt_data = self.receipt.finalize()
 
         # Get schema for validation
@@ -234,5 +307,9 @@ class Runner:
             logger.info(f"Receipt written: {path}")
         else:
             logger.error(f"Receipt validation failed, quarantined: {path}")
+
+        # Cleanup workdir after receipt is written
+        if cleanup:
+            self._cleanup_workdir(logger)
 
         return receipt_data["overall_status"] == "SUCCESS", path

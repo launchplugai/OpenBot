@@ -15,6 +15,7 @@ from pathlib import Path
 
 from openbot.receipts import Receipt, ReceiptWriter, validate_receipt
 from openbot.policy import PolicyLoader
+from openbot.runner import parse_pytest_output
 from openbot.utils import generate_run_id, get_timestamp
 
 
@@ -546,6 +547,68 @@ echo "CMD:$(parse_yaml_value command {config_file})"
     return True
 
 
+def test_pytest_output_parsing():
+    """Test parsing of pytest output for pass/fail counts."""
+    print("TEST: Pytest output parsing... ", end="")
+
+    test_cases = [
+        # (output, expected_passed, expected_failed)
+        ("===== 831 passed, 9 failed in 5.23s =====", 831, 9),
+        ("831 passed, 9 failed", 831, 9),
+        ("831 passed", 831, None),
+        ("9 failed", None, 9),
+        ("===== 100 passed in 2.31s =====", 100, None),
+        ("===== 5 failed in 1.23s =====", None, 5),
+        ("no tests ran", None, None),
+        ("", None, None),
+        ("collected 50 items\n\ntest_foo.py ...... [100%]\n\n===== 50 passed in 0.5s =====", 50, None),
+        ("FAILED tests/test_foo.py::test_bar - AssertionError\n===== 1 failed, 49 passed in 2.3s =====", 49, 1),
+    ]
+
+    for output, exp_passed, exp_failed in test_cases:
+        passed, failed = parse_pytest_output(output)
+        if passed != exp_passed:
+            print(f"FAILED: For '{output[:40]}...', expected passed={exp_passed}, got {passed}")
+            return False
+        if failed != exp_failed:
+            print(f"FAILED: For '{output[:40]}...', expected failed={exp_failed}, got {failed}")
+            return False
+
+    print("PASSED")
+    return True
+
+
+def test_receipt_with_pytest_counts():
+    """Test that receipts correctly store pytest pass/fail counts."""
+    print("TEST: Receipt with pytest counts... ", end="")
+
+    receipt = Receipt()
+    receipt.set_target(
+        repo="https://github.com/test/repo",
+        branch="main",
+        commit_sha="e" * 40
+    )
+    receipt.set_test_result(
+        command="pytest",
+        exit_code=0,
+        log_path="/tmp/test.log",
+        passed=831,
+        failed=9,
+        runtime_seconds=5.23,
+        setup_command="pip install -r requirements.txt"
+    )
+
+    data = receipt.finalize()
+
+    assert data["test"]["passed"] == 831, f"Expected 831, got {data['test'].get('passed')}"
+    assert data["test"]["failed"] == 9, f"Expected 9, got {data['test'].get('failed')}"
+    assert data["test"]["runtime_seconds"] == 5.23, f"Expected 5.23, got {data['test'].get('runtime_seconds')}"
+    assert data["test"]["setup_command"] == "pip install -r requirements.txt"
+
+    print("PASSED")
+    return True
+
+
 def run_all_tests() -> bool:
     """Run all self-tests."""
     print("=" * 50)
@@ -567,6 +630,8 @@ def run_all_tests() -> bool:
         test_is_writable_permission_error,
         test_config_example_has_required_keys,
         test_config_yaml_parsing,
+        test_pytest_output_parsing,
+        test_receipt_with_pytest_counts,
     ]
 
     passed = 0

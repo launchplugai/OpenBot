@@ -64,6 +64,22 @@
         "log_path": {
           "type": "string",
           "description": "Path to log file"
+        },
+        "passed": {
+          "type": ["integer", "null"],
+          "description": "Number of tests passed (from pytest output)"
+        },
+        "failed": {
+          "type": ["integer", "null"],
+          "description": "Number of tests failed (from pytest output)"
+        },
+        "runtime_seconds": {
+          "type": ["number", "null"],
+          "description": "Total runtime of the run in seconds"
+        },
+        "setup_command": {
+          "type": ["string", "null"],
+          "description": "Setup command executed before tests (e.g., pip install)"
         }
       },
       "additionalProperties": false

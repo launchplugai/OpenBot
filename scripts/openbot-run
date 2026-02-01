@@ -9,6 +9,7 @@
 #   target_repo: "https://github.com/org/repo"
 #   target_branch: "main"
 #   command: "npm test"
+#   setup_command: "pip install -r requirements.txt"  # optional
 #   health_url: "http://localhost:8080/health"  # optional
 #
 # Usage:
@@ -59,6 +60,7 @@ TARGET_BRANCH=$(parse_yaml_value "target_branch" "$CONFIG_FILE")
 COMMAND=$(parse_yaml_value "command" "$CONFIG_FILE")
 
 # Parse optional keys
+SETUP_COMMAND=$(parse_yaml_value "setup_command" "$CONFIG_FILE")
 HEALTH_URL=$(parse_yaml_value "health_url" "$CONFIG_FILE")
 
 # Validate required keys
@@ -84,6 +86,9 @@ echo "Configuration:"
 echo "  target_repo: $TARGET_REPO"
 echo "  target_branch: $TARGET_BRANCH"
 echo "  command: $COMMAND"
+if [[ -n "$SETUP_COMMAND" ]]; then
+    echo "  setup_command: $SETUP_COMMAND"
+fi
 if [[ -n "$HEALTH_URL" ]]; then
     echo "  health_url: $HEALTH_URL"
 fi
@@ -94,6 +99,11 @@ OPENBOT_CMD="/usr/local/bin/openbot run"
 OPENBOT_CMD="$OPENBOT_CMD --target-repo \"$TARGET_REPO\""
 OPENBOT_CMD="$OPENBOT_CMD --target-branch \"$TARGET_BRANCH\""
 OPENBOT_CMD="$OPENBOT_CMD --command \"$COMMAND\""
+
+# Add setup command if provided
+if [[ -n "$SETUP_COMMAND" ]]; then
+    OPENBOT_CMD="$OPENBOT_CMD --setup-command \"$SETUP_COMMAND\""
+fi
 
 # Add health URL if provided
 if [[ -n "$HEALTH_URL" ]]; then

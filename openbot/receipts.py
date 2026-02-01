@@ -118,6 +118,10 @@ class Receipt:
         self.test_exit_code: int = -1
         self.test_summary: str = "failed"
         self.test_log_path: str = ""
+        self.test_passed: Optional[int] = None
+        self.test_failed: Optional[int] = None
+        self.test_runtime_seconds: Optional[float] = None
+        self.setup_command: Optional[str] = None
         self.health_url: Optional[str] = None
         self.health_status_code: Optional[int] = None
         self.health_body_snippet: Optional[str] = None
@@ -133,12 +137,25 @@ class Receipt:
         self.target_branch = branch
         self.commit_sha = commit_sha
 
-    def set_test_result(self, command: str, exit_code: int, log_path: str):
+    def set_test_result(
+        self,
+        command: str,
+        exit_code: int,
+        log_path: str,
+        passed: Optional[int] = None,
+        failed: Optional[int] = None,
+        runtime_seconds: Optional[float] = None,
+        setup_command: Optional[str] = None
+    ):
         """Set test execution results."""
         self.test_command = command
         self.test_exit_code = exit_code
         self.test_summary = "passed" if exit_code == 0 else "failed"
         self.test_log_path = log_path
+        self.test_passed = passed
+        self.test_failed = failed
+        self.test_runtime_seconds = runtime_seconds
+        self.setup_command = setup_command
 
     def set_health_result(
         self,
@@ -177,6 +194,24 @@ class Receipt:
         else:
             self.overall_status = "FAILED"
 
+        # Build test object with optional fields
+        test_obj = {
+            "command": self.test_command,
+            "exit_code": self.test_exit_code,
+            "summary": self.test_summary,
+            "log_path": self.test_log_path
+        }
+
+        # Add optional test fields if present
+        if self.test_passed is not None:
+            test_obj["passed"] = self.test_passed
+        if self.test_failed is not None:
+            test_obj["failed"] = self.test_failed
+        if self.test_runtime_seconds is not None:
+            test_obj["runtime_seconds"] = self.test_runtime_seconds
+        if self.setup_command is not None:
+            test_obj["setup_command"] = self.setup_command
+
         receipt = {
             "receipt_version": "v1",
             "timestamp": self.timestamp,
@@ -184,12 +219,7 @@ class Receipt:
             "target_repo": self.target_repo,
             "target_branch": self.target_branch,
             "commit_sha": self.commit_sha,
-            "test": {
-                "command": self.test_command,
-                "exit_code": self.test_exit_code,
-                "summary": self.test_summary,
-                "log_path": self.test_log_path
-            },
+            "test": test_obj,
             "health": None,
             "overall_status": self.overall_status,
             "errors": self.errors,
