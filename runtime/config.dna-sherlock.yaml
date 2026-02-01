@@ -1,0 +1,22 @@
+# Openbot Configuration — DNA Sherlock (DNA Matrix)
+#
+# Copy to /etc/openbot/config.yaml to activate:
+#   sudo cp /opt/openbot/runtime/config.dna-sherlock.yaml /etc/openbot/config.yaml
+#
+# Then run:
+#   sudo systemctl start openbot-run
+
+# Repository to clone (READ-ONLY — Openbot never pushes)
+target_repo: "https://github.com/launchplugai/DNA"
+
+# Branch to checkout
+target_branch: "main"
+
+# Command to execute (setup + tests)
+# Note: pytest app/tests -v avoids dormant module errors
+command: "pip install -r requirements.txt && pytest app/tests -v"
+
+# Optional: Health check URL (uncomment to enable)
+# The server must be running for this to work
+# See docs/sprints/S1-03 for health check setup
+# health_url: "http://localhost:8000/health"
