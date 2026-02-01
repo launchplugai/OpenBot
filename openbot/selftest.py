@@ -397,6 +397,155 @@ def test_is_writable_permission_error():
     return True
 
 
+def test_config_example_has_required_keys():
+    """Test that config.example.yaml contains all required keys."""
+    print("TEST: Config example has required keys... ", end="")
+
+    # Find config.example.yaml relative to this file
+    repo_root = Path(__file__).parent.parent
+    config_path = repo_root / "runtime" / "config.example.yaml"
+
+    if not config_path.exists():
+        print(f"FAILED: Config example not found at {config_path}")
+        return False
+
+    with open(config_path, "r") as f:
+        content = f.read()
+
+    required_keys = ["target_repo", "target_branch", "command"]
+    missing = []
+
+    for key in required_keys:
+        # Check for key: pattern (allowing for comments)
+        if f"{key}:" not in content:
+            missing.append(key)
+
+    if missing:
+        print(f"FAILED: Missing required keys: {missing}")
+        return False
+
+    print("PASSED")
+    return True
+
+
+def test_config_yaml_parsing():
+    """Test YAML parsing handles quoted values and whitespace correctly."""
+    print("TEST: Config YAML parsing... ", end="")
+
+    import subprocess
+    import re
+
+    # Create test config with various quoting styles
+    test_cases = [
+        # (config_content, expected_repo, expected_branch, expected_command)
+        (
+            'target_repo: "https://github.com/test/repo"\ntarget_branch: "main"\ncommand: "npm test"',
+            "https://github.com/test/repo",
+            "main",
+            "npm test"
+        ),
+        (
+            "target_repo: 'https://github.com/test/repo'\ntarget_branch: 'main'\ncommand: 'npm test'",
+            "https://github.com/test/repo",
+            "main",
+            "npm test"
+        ),
+        (
+            "target_repo: https://github.com/test/repo\ntarget_branch: main\ncommand: ls -la",
+            "https://github.com/test/repo",
+            "main",
+            "ls -la"
+        ),
+        (
+            '  target_repo:   "https://github.com/test/repo"  \n  target_branch:  main  \ncommand: "echo hello"',
+            "https://github.com/test/repo",
+            "main",
+            "echo hello"
+        ),
+    ]
+
+    # We'll test the parsing logic directly using subprocess
+    # The parse_yaml_value function is in bash, so we test via subprocess
+    repo_root = Path(__file__).parent.parent
+    openbot_run = repo_root / "scripts" / "openbot-run"
+
+    if not openbot_run.exists():
+        print(f"FAILED: openbot-run script not found at {openbot_run}")
+        return False
+
+    # Extract and test the parse_yaml_value function
+    with open(openbot_run, "r") as f:
+        script_content = f.read()
+
+    # Verify script contains the parse function
+    if "parse_yaml_value()" not in script_content:
+        print("FAILED: parse_yaml_value function not found in script")
+        return False
+
+    # Extract the parse_yaml_value function from the actual script
+    import re
+    func_match = re.search(
+        r'parse_yaml_value\(\)\s*\{.*?\n\}',
+        script_content,
+        re.DOTALL
+    )
+    if not func_match:
+        print("FAILED: Could not extract parse_yaml_value function")
+        return False
+
+    parse_func = func_match.group(0)
+
+    # Test the parsing by creating temp config files and running the parse function
+    for i, (config_content, exp_repo, exp_branch, exp_cmd) in enumerate(test_cases):
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+            f.write(config_content)
+            config_file = f.name
+
+        try:
+            # Create a test script using the actual parse function from the script
+            test_script = f'''
+#!/bin/bash
+{parse_func}
+echo "REPO:$(parse_yaml_value target_repo {config_file})"
+echo "BRANCH:$(parse_yaml_value target_branch {config_file})"
+echo "CMD:$(parse_yaml_value command {config_file})"
+'''
+            result = subprocess.run(
+                ["bash", "-c", test_script],
+                capture_output=True,
+                text=True
+            )
+
+            output = result.stdout
+            parsed_repo = ""
+            parsed_branch = ""
+            parsed_cmd = ""
+
+            for line in output.strip().split('\n'):
+                if line.startswith("REPO:"):
+                    parsed_repo = line[5:]
+                elif line.startswith("BRANCH:"):
+                    parsed_branch = line[7:]
+                elif line.startswith("CMD:"):
+                    parsed_cmd = line[4:]
+
+            if parsed_repo != exp_repo:
+                print(f"FAILED: Case {i+1} repo mismatch: got '{parsed_repo}', expected '{exp_repo}'")
+                return False
+            if parsed_branch != exp_branch:
+                print(f"FAILED: Case {i+1} branch mismatch: got '{parsed_branch}', expected '{exp_branch}'")
+                return False
+            if parsed_cmd != exp_cmd:
+                print(f"FAILED: Case {i+1} command mismatch: got '{parsed_cmd}', expected '{exp_cmd}'")
+                return False
+
+        finally:
+            Path(config_file).unlink()
+
+    print("PASSED")
+    return True
+
+
 def run_all_tests() -> bool:
     """Run all self-tests."""
     print("=" * 50)
@@ -416,6 +565,8 @@ def run_all_tests() -> bool:
         test_protected_paths,
         test_doctor_permission_error,
         test_is_writable_permission_error,
+        test_config_example_has_required_keys,
+        test_config_yaml_parsing,
     ]
 
     passed = 0

@@ -1,0 +1,21 @@
+# Openbot Configuration
+#
+# This file configures the openbot-run service.
+# Copy to /etc/openbot/config.yaml and edit values.
+#
+# Usage:
+#   sudo cp /opt/openbot/runtime/config.example.yaml /etc/openbot/config.yaml
+#   sudo vim /etc/openbot/config.yaml
+#   sudo systemctl start openbot-run
+
+# Required: Git repository URL to clone
+target_repo: "https://github.com/octocat/Hello-World"
+
+# Required: Git branch to checkout
+target_branch: "master"
+
+# Required: Test command to execute
+command: "ls -la"
+
+# Optional: Health check URL (uncomment to enable)
+# health_url: "http://localhost:8080/health"

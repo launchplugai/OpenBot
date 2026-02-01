@@ -109,14 +109,49 @@ chmod +x /usr/local/bin/openbot
 # Remove old PYTHONPATH profile script if exists (no longer needed with venv)
 rm -f /etc/profile.d/openbot.sh 2>/dev/null || true
 
+# Install openbot-run wrapper script
+echo "Installing /usr/local/bin/openbot-run wrapper..."
+cp "$REPO_ROOT/scripts/openbot-run" /usr/local/bin/openbot-run
+chmod +x /usr/local/bin/openbot-run
+
 echo ""
-echo "=== Step 5: Installing systemd service ==="
+echo "=== Step 5: Installing systemd services ==="
 if [[ -f "$REPO_ROOT/runtime/openbot.service" ]]; then
     cp "$REPO_ROOT/runtime/openbot.service" /etc/systemd/system/
-    systemctl daemon-reload
-    echo "Systemd service installed (not enabled - use 'systemctl enable openbot' if needed)"
+    echo "Installed openbot.service"
 else
-    echo "WARNING: systemd service file not found"
+    echo "WARNING: openbot.service not found"
+fi
+
+if [[ -f "$REPO_ROOT/runtime/openbot-run.service" ]]; then
+    cp "$REPO_ROOT/runtime/openbot-run.service" /etc/systemd/system/
+    echo "Installed openbot-run.service"
+else
+    echo "WARNING: openbot-run.service not found"
+fi
+
+systemctl daemon-reload
+echo "Systemd services installed (not enabled - use 'systemctl enable <service>' if needed)"
+
+echo ""
+echo "=== Step 6: Setting up config ==="
+OPENBOT_CONFIG_DIR="/etc/openbot"
+mkdir -p "$OPENBOT_CONFIG_DIR"
+chown root:$OPENBOT_USER "$OPENBOT_CONFIG_DIR"
+chmod 750 "$OPENBOT_CONFIG_DIR"
+
+if [[ ! -f "$OPENBOT_CONFIG_DIR/config.yaml" ]]; then
+    if [[ -f "$REPO_ROOT/runtime/config.example.yaml" ]]; then
+        cp "$REPO_ROOT/runtime/config.example.yaml" "$OPENBOT_CONFIG_DIR/config.yaml"
+        chown root:$OPENBOT_USER "$OPENBOT_CONFIG_DIR/config.yaml"
+        chmod 640 "$OPENBOT_CONFIG_DIR/config.yaml"
+        echo "Created default config at $OPENBOT_CONFIG_DIR/config.yaml"
+        echo "  Edit this file to configure openbot-run service"
+    else
+        echo "WARNING: config.example.yaml not found"
+    fi
+else
+    echo "Config already exists at $OPENBOT_CONFIG_DIR/config.yaml"
 fi
 
 echo ""
@@ -128,6 +163,10 @@ echo ""
 echo "Run a test with:"
 echo "  openbot run --target-repo <url> --target-branch <branch> --command '<cmd>'"
 echo ""
+echo "Config-driven run (edit /etc/openbot/config.yaml first):"
+echo "  sudo systemctl start openbot-run"
+echo "  journalctl -u openbot-run --no-pager"
+echo ""
 echo "For local development (no system install):"
 echo "  python3 -m openbot.cli doctor --local"
 echo ""
@@ -135,3 +174,4 @@ echo "Directories created:"
 for dir in "${OPENBOT_DIRS[@]}"; do
     echo "  $OPENBOT_HOME/$dir"
 done
+echo "  /etc/openbot/"

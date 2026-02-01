@@ -1,0 +1,115 @@
+#!/bin/bash
+#
+# Openbot Config-Driven Run Wrapper
+#
+# Reads configuration from /etc/openbot/config.yaml and executes openbot run.
+# Designed to be called by systemd oneshot service.
+#
+# Config file format (simple YAML):
+#   target_repo: "https://github.com/org/repo"
+#   target_branch: "main"
+#   command: "npm test"
+#   health_url: "http://localhost:8080/health"  # optional
+#
+# Usage:
+#   /usr/local/bin/openbot-run
+#
+# Exit code matches openbot run result.
+
+set -euo pipefail
+
+CONFIG_FILE="${OPENBOT_CONFIG:-/etc/openbot/config.yaml}"
+
+# Simple YAML parser for key: "value" or key: value format
+# Handles quoted values, leading/trailing whitespace
+parse_yaml_value() {
+    local key="$1"
+    local file="$2"
+    local value
+
+    # Extract line matching key: (with optional leading whitespace), then parse value
+    value=$(grep -E "^[[:space:]]*${key}:" "$file" 2>/dev/null | head -1 | sed "s/^[[:space:]]*${key}:[[:space:]]*//" || echo "")
+
+    # Trim trailing whitespace first
+    value=$(echo "$value" | sed -e 's/[[:space:]]*$//')
+
+    # Remove surrounding quotes (single or double)
+    value=$(echo "$value" | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
+
+    # Trim any remaining whitespace
+    value=$(echo "$value" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+
+    echo "$value"
+}
+
+echo "=== Openbot Config-Driven Run ==="
+echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+echo "Config file: $CONFIG_FILE"
+
+# Check config file exists
+if [[ ! -f "$CONFIG_FILE" ]]; then
+    echo "ERROR: Config file not found: $CONFIG_FILE"
+    echo "Create config from example: sudo cp /opt/openbot/runtime/config.example.yaml $CONFIG_FILE"
+    exit 1
+fi
+
+# Parse required keys
+TARGET_REPO=$(parse_yaml_value "target_repo" "$CONFIG_FILE")
+TARGET_BRANCH=$(parse_yaml_value "target_branch" "$CONFIG_FILE")
+COMMAND=$(parse_yaml_value "command" "$CONFIG_FILE")
+
+# Parse optional keys
+HEALTH_URL=$(parse_yaml_value "health_url" "$CONFIG_FILE")
+
+# Validate required keys
+MISSING=""
+if [[ -z "$TARGET_REPO" ]]; then
+    MISSING="${MISSING}target_repo "
+fi
+if [[ -z "$TARGET_BRANCH" ]]; then
+    MISSING="${MISSING}target_branch "
+fi
+if [[ -z "$COMMAND" ]]; then
+    MISSING="${MISSING}command "
+fi
+
+if [[ -n "$MISSING" ]]; then
+    echo "ERROR: Missing required config keys: $MISSING"
+    echo "Required keys: target_repo, target_branch, command"
+    exit 1
+fi
+
+echo ""
+echo "Configuration:"
+echo "  target_repo: $TARGET_REPO"
+echo "  target_branch: $TARGET_BRANCH"
+echo "  command: $COMMAND"
+if [[ -n "$HEALTH_URL" ]]; then
+    echo "  health_url: $HEALTH_URL"
+fi
+echo ""
+
+# Build openbot command
+OPENBOT_CMD="/usr/local/bin/openbot run"
+OPENBOT_CMD="$OPENBOT_CMD --target-repo \"$TARGET_REPO\""
+OPENBOT_CMD="$OPENBOT_CMD --target-branch \"$TARGET_BRANCH\""
+OPENBOT_CMD="$OPENBOT_CMD --command \"$COMMAND\""
+
+# Add health URL if provided
+if [[ -n "$HEALTH_URL" ]]; then
+    OPENBOT_CMD="$OPENBOT_CMD --health-url \"$HEALTH_URL\""
+fi
+
+echo "Executing: $OPENBOT_CMD"
+echo ""
+
+# Execute openbot run
+eval "$OPENBOT_CMD"
+EXIT_CODE=$?
+
+echo ""
+echo "=== Run Complete ==="
+echo "Exit code: $EXIT_CODE"
+echo "receipt_hint=\"check /var/lib/openbot/receipts for latest\""
+
+exit $EXIT_CODE

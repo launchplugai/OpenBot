@@ -1,0 +1,49 @@
+# Openbot Config-Driven Run Service
+#
+# This service runs openbot based on config at /etc/openbot/config.yaml.
+# Use systemctl start openbot-run to trigger a run.
+#
+# Install:
+#   sudo cp openbot-run.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#
+# Usage:
+#   sudo systemctl start openbot-run
+#
+# Check results:
+#   journalctl -u openbot-run --no-pager
+#   ls -t /var/lib/openbot/receipts/*.json | head -1
+
+[Unit]
+Description=Openbot Config-Driven Run
+Documentation=https://github.com/launchplugai/openbot
+After=network.target
+
+[Service]
+Type=oneshot
+User=openbot
+Group=openbot
+WorkingDirectory=/var/lib/openbot
+
+# Environment
+Environment=OPENBOT_HOME=/var/lib/openbot
+
+# Execution - uses config-driven wrapper
+ExecStart=/usr/local/bin/openbot-run
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/openbot /etc/openbot
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+
+# Resource limits
+TimeoutStartSec=600
+MemoryMax=1G
+
+[Install]
+WantedBy=multi-user.target
