@@ -53,6 +53,42 @@ def parse_pytest_output(output: str) -> Tuple[Optional[int], Optional[int]]:
     return passed, failed
 
 
+def load_credentials(credentials_file: Path = Path("/etc/openbot/credentials")) -> dict:
+    """
+    Load credentials from /etc/openbot/credentials file.
+
+    Format: KEY=VALUE (one per line, no quotes needed)
+    Returns dict of key-value pairs.
+    """
+    creds = {}
+    if credentials_file.exists():
+        try:
+            with open(credentials_file, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and "=" in line and not line.startswith("#"):
+                        key, value = line.split("=", 1)
+                        creds[key.strip()] = value.strip()
+        except (OSError, PermissionError):
+            pass
+    return creds
+
+
+def get_authenticated_url(repo_url: str, credentials: dict) -> str:
+    """
+    Convert a GitHub URL to an authenticated URL using stored credentials.
+
+    Supports DNA_REPO_TOKEN for github.com/launchplugai/DNA access.
+    """
+    # Check if this is a GitHub URL that needs authentication
+    if "github.com/launchplugai/DNA" in repo_url and "DNA_REPO_TOKEN" in credentials:
+        token = credentials["DNA_REPO_TOKEN"]
+        # Convert https://github.com/... to https://<token>@github.com/...
+        if repo_url.startswith("https://github.com/"):
+            return repo_url.replace("https://github.com/", f"https://{token}@github.com/")
+    return repo_url
+
+
 class Runner:
     """Executes Openbot runs against target repositories."""
 
@@ -82,6 +118,9 @@ class Runner:
         self.workdir = self.base_workdir / self.run_id
         self.target_dir = self.workdir / "target"
         self.log_path = self.logs_dir / f"{self.run_id}.log"
+
+        # Load credentials for authenticated git access
+        self.credentials = load_credentials()
 
         # Load policies
         self.policy_loader = PolicyLoader(policies_dir)
@@ -184,10 +223,15 @@ class Runner:
         logger.info(f"Cloning repository...")
         ensure_dir(self.workdir)
 
+        # Get authenticated URL if credentials available
+        clone_url = get_authenticated_url(self.target_repo, self.credentials)
+
+        # Log the public URL (never log tokens)
         exit_code, stdout, stderr = run_command(
-            f"git clone --branch {self.target_branch} {self.target_repo} target",
+            f"git clone --branch {self.target_branch} {clone_url} target",
             cwd=self.workdir
         )
+        # Log with original URL to avoid exposing tokens
         logger.command(
             f"git clone --branch {self.target_branch} {self.target_repo} target",
             exit_code, stdout, stderr
