@@ -198,7 +198,7 @@ def cmd_run(args) -> int:
         print("Error: --target-branch is required", file=sys.stderr)
         return 1
     if not args.command:
-        print("Error: --command is required", file=sys.stderr)
+
         return 1
 
     # Create runner
@@ -398,7 +398,7 @@ def main():
         version="openbot 0.1.0"
     )
 
-    subparsers = parser.add_subparsers(dest="subcommand", help="Available commands")
+
 
     # Doctor command
     doctor_parser = subparsers.add_parser(
@@ -527,6 +527,49 @@ def main():
         help="Output results as JSON"
     )
 
+
+    # Bridge command group (OpenClaw-compatible interface)
+    bridge_parser = subparsers.add_parser(
+        "bridge",
+        help="OpenClaw-compatible bridge interface (JSON-only output)"
+    )
+    bridge_subparsers = bridge_parser.add_subparsers(dest="bridge_subcommand", help="Bridge commands")
+
+    # Bridge status subcommand
+    bridge_status_parser = bridge_subparsers.add_parser(
+        "status",
+        help="Get combined status: doctor + service + latest_receipt"
+    )
+
+    # Bridge night-run subcommand
+    bridge_nightrun_parser = bridge_subparsers.add_parser(
+        "night-run",
+        help="Trigger test run and return summary with triage"
+    )
+
+    # Bridge logs subcommand
+    bridge_logs_parser = bridge_subparsers.add_parser(
+        "logs",
+        help="Fetch journal logs for openbot-run.service"
+    )
+    bridge_logs_parser.add_argument(
+        "--lines", "-n",
+        type=int,
+        default=120,
+        help="Number of lines to fetch (default: 120, max: 1000)"
+    )
+
+    # Bridge service subcommand
+    bridge_service_parser = bridge_subparsers.add_parser(
+        "service",
+        help="Control openbot-run.service (status or restart only)"
+    )
+    bridge_service_parser.add_argument(
+        "action",
+        choices=["status", "restart"],
+        help="Action to perform"
+    )
+
     args = parser.parse_args()
 
     if args.subcommand is None:
@@ -550,6 +593,22 @@ def main():
         else:
             ssm_parser.print_help()
             return 1
+    elif args.subcommand == "bridge":
+        from openbot.bridge.commands import cmd_status, cmd_night_run, cmd_logs, cmd_service
+        if args.bridge_subcommand is None:
+            bridge_parser.print_help()
+            return 1
+
+            return cmd_status(args)
+        elif args.bridge_subcommand == "night-run":
+            return cmd_night_run(args)
+        elif args.bridge_subcommand == "logs":
+            return cmd_logs(args)
+        elif args.bridge_subcommand == "service":
+            return cmd_service(args)
+        else:
+            bridge_parser.print_help()
+            return 1
     else:
         parser.print_help()
         return 1
@@ -557,3 +616,4 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+
