@@ -12,8 +12,8 @@ target_repo: "https://github.com/launchplugai/DNA"
 # Branch to checkout
 target_branch: "main"
 
-# Setup command (install dependencies)
-setup_command: "pip install -r requirements.txt"
+# Setup command (install dependencies + editable dna-matrix package)
+setup_command: "pip install -r requirements.txt && pip install -e ./dna-matrix"
 
 # Test command to execute
 # Note: pytest app/tests -v avoids dormant module errors
