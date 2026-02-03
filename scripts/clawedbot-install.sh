@@ -95,6 +95,22 @@ log_action() {
     echo "[PLAN] $*"
 }
 
+show_wrapper_resolution() {
+    # Show which openbot resolves to and wrapper content (for debugging mismatches)
+    echo ""
+    echo "=== Wrapper Resolution ==="
+    local resolved_path
+    resolved_path=$(command -v openbot 2>/dev/null || echo "(not in PATH)")
+    echo "command -v openbot: $resolved_path"
+
+    if [[ -f "$WRAPPER_PATH" ]]; then
+        echo "Wrapper content ($WRAPPER_PATH):"
+        head -2 "$WRAPPER_PATH" | sed 's/^/  /'
+    else
+        echo "Wrapper file not found: $WRAPPER_PATH"
+    fi
+}
+
 # =============================================================================
 # USAGE
 # =============================================================================
@@ -365,6 +381,9 @@ run_preflight_checks() {
     echo "=== Preflight Summary ==="
     echo "Checks passed: $CHECKS_PASSED"
     echo "Checks failed: $CHECKS_FAILED"
+
+    # Show wrapper resolution for debugging
+    show_wrapper_resolution
     echo ""
 }
 
