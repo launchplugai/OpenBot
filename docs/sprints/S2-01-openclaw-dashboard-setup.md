@@ -388,6 +388,57 @@ swapon --show
 
 ---
 
+## Stability Optimizations
+
+### Systemd Service
+
+Created `/etc/systemd/system/openclaw-gateway.service` for automatic restart on crash:
+
+```ini
+[Unit]
+Description=OpenClaw Gateway
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Environment=NODE_OPTIONS=--max-old-space-size=1024
+Environment=ANTHROPIC_API_KEY=<key>
+ExecStart=/usr/bin/openclaw gateway --port 18789 --bind tailnet --dev --allow-unconfigured --token <token>
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**Enable and start:**
+```bash
+systemctl daemon-reload
+systemctl enable openclaw-gateway
+systemctl start openclaw-gateway
+```
+
+### Agent Concurrency Tuning
+
+Reduced concurrent agents to prevent memory pressure on t3.micro:
+
+| Setting | Default | Optimized | Purpose |
+|---------|---------|-----------|---------|
+| `agents.defaults.maxConcurrent` | 4 | 1 | Max parallel agent sessions |
+| `agents.defaults.subagents.maxConcurrent` | 8 | 2 | Max parallel subagents per session |
+
+**Apply via CLI:**
+```bash
+openclaw config set agents.defaults.maxConcurrent 1
+openclaw config set agents.defaults.subagents.maxConcurrent 2
+systemctl restart openclaw-gateway
+```
+
+**Result:** Swap usage dropped from 382Mi to 100Mi after applying these settings.
+
+---
+
 ## Post-Setup Checklist
 
 - [x] EBS volume expanded to 15GB
@@ -397,7 +448,8 @@ swapon --show
 - [x] Gateway configuration applied
 - [x] Gateway running and accessible
 - [x] Mobile device connected successfully
-- [ ] Set up systemd service for gateway auto-start
+- [x] Set up systemd service for gateway auto-start
+- [x] Agent concurrency optimized for t3.micro
 - [ ] Configure log rotation
 - [ ] Rotate credentials after testing
 - [ ] Document backup/restore procedure
@@ -406,11 +458,11 @@ swapon --show
 
 ## Future Improvements
 
-1. **Systemd Service:** Create service file for automatic gateway start on reboot
-2. **Log Rotation:** Configure logrotate for gateway logs
-3. **Monitoring:** Add health checks and alerting
-4. **Backup:** Document config backup procedure
-5. **Multi-User:** Configure role-based access for multiple operators
+1. **Log Rotation:** Configure logrotate for gateway logs
+2. **Monitoring:** Add health checks and alerting
+3. **Backup:** Document config backup procedure
+4. **Multi-User:** Configure role-based access for multiple operators
+5. **Instance Upgrade:** Consider t3.small for more headroom if needed
 
 ---
 
@@ -439,13 +491,19 @@ swapon --show
   "components_installed": [
     "openclaw@2026.2.2-3",
     "tailscale",
-    "swap (2GB)"
+    "swap (2GB)",
+    "systemd service"
   ],
   "storage_expanded": "7GB -> 15GB",
   "access_method": "Tailscale private network",
   "gateway_port": 18789,
+  "optimizations_applied": {
+    "agents.defaults.maxConcurrent": 1,
+    "agents.defaults.subagents.maxConcurrent": 2,
+    "systemd_auto_restart": true
+  },
   "dashboard_verified": true,
   "mobile_access_verified": true,
-  "timestamp": "2026-02-04"
+  "timestamp": "2026-02-05"
 }
 ```
