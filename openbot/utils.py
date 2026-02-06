@@ -112,6 +112,175 @@ def truncate_string(s: str, max_len: int = 500) -> str:
     return s[:max_len]
 
 
+def check_aws_cli() -> Tuple[bool, str]:
+    """
+    Check if AWS CLI is installed and accessible.
+
+    Returns: (is_available, version_or_error)
+    """
+    aws_path = find_binary("aws")
+    if not aws_path:
+        return False, "AWS CLI not found in PATH"
+
+    exit_code, stdout, stderr = run_command("aws --version", timeout=10)
+    if exit_code != 0:
+        return False, f"AWS CLI check failed: {stderr}"
+
+    return True, stdout.strip()
+
+
+def check_ssm_plugin() -> Tuple[bool, str]:
+    """
+    Check if Session Manager plugin is installed.
+
+    Returns: (is_available, version_or_error)
+    """
+    plugin_path = find_binary("session-manager-plugin")
+    if not plugin_path:
+        return False, "Session Manager plugin not found in PATH"
+
+    exit_code, stdout, stderr = run_command("session-manager-plugin --version", timeout=10)
+    if exit_code != 0:
+        # Plugin might output version to stderr or have non-zero exit
+        version = stdout.strip() or stderr.strip()
+        if version:
+            return True, version
+        return False, "Session Manager plugin check failed"
+
+    return True, stdout.strip()
+
+
+def ssm_describe_instance(instance_id: str, region: Optional[str] = None) -> Tuple[bool, Dict[str, Any]]:
+    """
+    Get SSM instance information.
+
+    Returns: (success, instance_info_or_error)
+    """
+    cmd = f"aws ssm describe-instance-information --filters Key=InstanceIds,Values={instance_id} --output json"
+    if region:
+        cmd += f" --region {region}"
+
+    exit_code, stdout, stderr = run_command(cmd, timeout=30)
+    if exit_code != 0:
+        return False, {"error": stderr.strip() or "Failed to describe instance"}
+
+    try:
+        data = json.loads(stdout)
+        instances = data.get("InstanceInformationList", [])
+        if not instances:
+            return False, {"error": f"Instance {instance_id} not found in SSM"}
+        return True, instances[0]
+    except json.JSONDecodeError as e:
+        return False, {"error": f"Failed to parse response: {e}"}
+
+
+def ssm_send_command(
+    instance_id: str,
+    command: str,
+    region: Optional[str] = None,
+    timeout: int = 60
+) -> Tuple[bool, Dict[str, Any]]:
+    """
+    Send a command to an instance via SSM Run Command.
+
+    Returns: (success, result_dict)
+    """
+    # Escape the command for shell
+    escaped_command = command.replace('"', '\\"')
+
+    cmd = (
+        f'aws ssm send-command '
+        f'--instance-ids {instance_id} '
+        f'--document-name "AWS-RunShellScript" '
+        f'--parameters commands="{escaped_command}" '
+        f'--output json'
+    )
+    if region:
+        cmd += f" --region {region}"
+
+    exit_code, stdout, stderr = run_command(cmd, timeout=30)
+    if exit_code != 0:
+        return False, {"error": stderr.strip() or "Failed to send command"}
+
+    try:
+        data = json.loads(stdout)
+        command_id = data.get("Command", {}).get("CommandId")
+        if not command_id:
+            return False, {"error": "No CommandId in response"}
+
+        # Wait for command to complete and get output
+        return ssm_get_command_output(instance_id, command_id, region, timeout)
+    except json.JSONDecodeError as e:
+        return False, {"error": f"Failed to parse response: {e}"}
+
+
+def ssm_get_command_output(
+    instance_id: str,
+    command_id: str,
+    region: Optional[str] = None,
+    timeout: int = 60
+) -> Tuple[bool, Dict[str, Any]]:
+    """
+    Wait for SSM command to complete and get output.
+
+    Returns: (success, result_dict)
+    """
+    import time
+
+    cmd = (
+        f"aws ssm get-command-invocation "
+        f"--command-id {command_id} "
+        f"--instance-id {instance_id} "
+        f"--output json"
+    )
+    if region:
+        cmd += f" --region {region}"
+
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        exit_code, stdout, stderr = run_command(cmd, timeout=30)
+
+        if exit_code != 0:
+            # Command might not be ready yet
+            if "InvocationDoesNotExist" in stderr:
+                time.sleep(2)
+                continue
+            return False, {"error": stderr.strip() or "Failed to get command output"}
+
+        try:
+            data = json.loads(stdout)
+            status = data.get("Status", "")
+
+            if status in ("Success", "Failed", "Cancelled", "TimedOut"):
+                return status == "Success", {
+                    "status": status,
+                    "exit_code": data.get("ResponseCode", -1),
+                    "stdout": data.get("StandardOutputContent", ""),
+                    "stderr": data.get("StandardErrorContent", ""),
+                    "command_id": command_id
+                }
+
+            # Still in progress
+            time.sleep(2)
+
+        except json.JSONDecodeError as e:
+            return False, {"error": f"Failed to parse response: {e}"}
+
+    return False, {"error": f"Command timed out after {timeout}s", "command_id": command_id}
+
+
+def ssm_start_session_command(instance_id: str, region: Optional[str] = None) -> str:
+    """
+    Generate the AWS CLI command to start an SSM session.
+
+    Returns the command string (user must run it interactively).
+    """
+    cmd = f"aws ssm start-session --target {instance_id}"
+    if region:
+        cmd += f" --region {region}"
+    return cmd
+
+
 class Logger:
     """Simple logger that writes to file and optionally stdout."""
 
