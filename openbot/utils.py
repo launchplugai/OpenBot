@@ -281,6 +281,101 @@ def ssm_start_session_command(instance_id: str, region: Optional[str] = None) ->
     return cmd
 
 
+def check_stale_workdirs(workdir: Path, max_age_hours: int = 2) -> List[Dict[str, Any]]:
+    """
+    Find workdirs older than max_age_hours.
+    Stale workdirs indicate hung or abandoned runs.
+    Returns list of stale workdir info dicts.
+    """
+    stale = []
+    try:
+        if not workdir.exists():
+            return stale
+        import time
+        now = time.time()
+        cutoff = now - (max_age_hours * 3600)
+        for entry in workdir.iterdir():
+            if entry.is_dir() and entry.name != ".gitkeep":
+                try:
+                    mtime = entry.stat().st_mtime
+                    if mtime < cutoff:
+                        age_hours = round((now - mtime) / 3600, 1)
+                        stale.append({
+                            "path": str(entry),
+                            "age_hours": age_hours,
+                        })
+                except OSError:
+                    pass
+    except (OSError, PermissionError):
+        pass
+    return stale
+
+
+def check_disk_space(path: Path) -> Optional[Dict[str, Any]]:
+    """
+    Check available disk space at path.
+    Returns dict with total_mb, free_mb, used_percent, or None on error.
+    """
+    try:
+        stat = shutil.disk_usage(str(path))
+        return {
+            "total_mb": round(stat.total / (1024 * 1024)),
+            "free_mb": round(stat.free / (1024 * 1024)),
+            "used_percent": round((stat.used / stat.total) * 100, 1),
+        }
+    except (OSError, PermissionError):
+        return None
+
+
+def check_openbot_processes() -> List[Dict[str, Any]]:
+    """
+    Find running openbot processes (potential zombies or hung runs).
+    Returns list of process info dicts.
+    """
+    processes = []
+    try:
+        exit_code, stdout, stderr = run_command(
+            "ps aux | grep -E 'openbot\\.(cli|runner)' | grep -v grep",
+            timeout=10,
+        )
+        if exit_code == 0 and stdout.strip():
+            for line in stdout.strip().split("\n"):
+                parts = line.split(None, 10)
+                if len(parts) >= 11:
+                    processes.append({
+                        "user": parts[0],
+                        "pid": parts[1],
+                        "cpu": parts[2],
+                        "mem": parts[3],
+                        "command": parts[10],
+                    })
+    except Exception:
+        pass
+    return processes
+
+
+def check_systemd_service(service_name: str = "openbot-run.service") -> Optional[Dict[str, str]]:
+    """
+    Check systemd service status.
+    Returns dict with active_state, sub_state, or None if systemd unavailable.
+    """
+    try:
+        exit_code, stdout, stderr = run_command(
+            f"systemctl show {service_name} --property=ActiveState,SubState,Result --no-pager",
+            timeout=10,
+        )
+        if exit_code != 0:
+            return None
+        info = {}
+        for line in stdout.strip().split("\n"):
+            if "=" in line:
+                k, v = line.split("=", 1)
+                info[k.strip()] = v.strip()
+        return info
+    except Exception:
+        return None
+
+
 class Logger:
     """Simple logger that writes to file and optionally stdout."""
 

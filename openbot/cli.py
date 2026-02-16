@@ -27,6 +27,10 @@ from openbot.utils import (
     ssm_describe_instance,
     ssm_send_command,
     ssm_start_session_command,
+    check_stale_workdirs,
+    check_disk_space,
+    check_openbot_processes,
+    check_systemd_service,
 )
 from openbot.runner import Runner
 from openbot.policy import PolicyLoader
@@ -121,10 +125,54 @@ def cmd_doctor(args) -> int:
     if not policies_ok:
         report["errors"].extend(policy_loader.get_load_errors())
 
+    # Liveness / unresponsive diagnostics
+    liveness_ok = True
+    report["checks"]["liveness"] = {}
+
+    # Check for stale workdirs (hung or abandoned runs)
+    stale = check_stale_workdirs(workdir)
+    report["checks"]["liveness"]["stale_workdirs"] = len(stale)
+    if stale:
+        report["checks"]["liveness"]["stale_workdir_details"] = stale
+        report["errors"].append(
+            f"Found {len(stale)} stale workdir(s) older than 2 hours (possible hung runs)"
+        )
+        liveness_ok = False
+
+    # Check disk space
+    disk = check_disk_space(workdir if safe_path_exists(workdir) else Path("/tmp"))
+    if disk:
+        report["checks"]["liveness"]["disk"] = disk
+        if disk["free_mb"] < 100:
+            report["errors"].append(
+                f"Critically low disk space: {disk['free_mb']}MB free"
+            )
+            liveness_ok = False
+        elif disk["free_mb"] < 500:
+            report["errors"].append(
+                f"Low disk space warning: {disk['free_mb']}MB free"
+            )
+    else:
+        report["checks"]["liveness"]["disk"] = None
+
+    # Check for running openbot processes
+    procs = check_openbot_processes()
+    report["checks"]["liveness"]["running_processes"] = len(procs)
+    if procs:
+        report["checks"]["liveness"]["process_details"] = procs
+
+    # Check systemd service status (if available)
+    svc = check_systemd_service()
+    if svc:
+        report["checks"]["liveness"]["service"] = svc
+        if svc.get("Result") == "timeout":
+            report["errors"].append("systemd service result: timeout (last run timed out)")
+            liveness_ok = False
+
     # Determine overall status
     if not binaries_ok or not dirs_ok:
         report["overall_status"] = "UNHEALTHY"
-    elif not policies_ok:
+    elif not policies_ok or not liveness_ok:
         report["overall_status"] = "DEGRADED"
     else:
         report["overall_status"] = "HEALTHY"
@@ -281,6 +329,15 @@ def cmd_ssm_verify(args) -> int:
         report["overall_status"] = "NOT_READY"
     elif args.instance_id and not instance_ok:
         report["overall_status"] = "INSTANCE_NOT_MANAGED"
+    elif args.instance_id and instance_ok:
+        ping = instance_info.get("PingStatus", "Unknown")
+        if ping != "Online":
+            report["overall_status"] = "INSTANCE_UNRESPONSIVE"
+            report["errors"].append(
+                f"Instance ping status is '{ping}' (expected 'Online') - instance may be unresponsive"
+            )
+        else:
+            report["overall_status"] = "READY"
     else:
         report["overall_status"] = "READY"
 

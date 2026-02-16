@@ -64,6 +64,36 @@ rules:
       message: "Health check failed but run continues"
     phase: 1
 
+  - id: stale_workdir_detected
+    description: "Workdir older than 2 hours found (possible hung run)"
+    trigger:
+      condition: doctor.liveness.stale_workdirs > 0
+    severity: medium
+    action:
+      type: log_and_continue
+      message: "Stale workdirs detected - possible hung or abandoned run"
+    phase: 1
+
+  - id: disk_space_critical
+    description: "Less than 100MB disk space available"
+    trigger:
+      condition: doctor.liveness.disk.free_mb < 100
+    severity: critical
+    action:
+      type: abort
+      message: "Critically low disk space"
+    phase: 1
+
+  - id: instance_unresponsive
+    description: "SSM instance ping status is not Online"
+    trigger:
+      condition: ssm.ping_status != Online
+    severity: high
+    action:
+      type: log_and_fail
+      message: "Instance is unresponsive"
+    phase: 1
+
 # Future phases will add:
 # - Notification rules (Phase 2)
 # - Auto-retry rules (Phase 2)
