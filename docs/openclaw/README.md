@@ -1,8 +1,14 @@
 # OpenClaw Documentation
 
-This folder contains the complete documentation for OpenBot (deployed as **Clawedbot** / **OpenClaw** on EC2).
+This folder contains the complete documentation for the **OpenClaw** multi-tier AI agent system and its **OpenBot** automation runtime.
 
-## Contents
+## Start Here
+
+| File | Description |
+|------|-------------|
+| [ONBOARDING.md](ONBOARDING.md) | **Constitution** -- org chart, ROE, memory system, session protocol, infrastructure |
+
+## OpenBot Runtime
 
 | File | Description |
 |------|-------------|
