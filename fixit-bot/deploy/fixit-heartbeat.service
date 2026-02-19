@@ -1,0 +1,38 @@
+# fixit-heartbeat.service — systemd unit for fixit.bot heartbeat
+#
+# Install:
+#   cp fixit-heartbeat.service /etc/systemd/system/
+#   cp fixit-heartbeat.json /root/.fixit/heartbeat-config.json
+#   systemctl daemon-reload
+#   systemctl enable --now fixit-heartbeat
+#
+# Performance: ~1 Haiku call every 15 minutes = $0.86/day
+# CPU: <1% (sleeps between beats, each beat <3s)
+# RAM: <50MB (Python process, no persistent state in memory)
+
+[Unit]
+Description=fixit.bot Heartbeat — Lateral Diagnostics Pulse
+After=network.target openclaw-gateway.service
+Wants=openclaw-gateway.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/fixit heartbeat --config /root/.fixit/heartbeat-config.json
+Restart=on-failure
+RestartSec=60
+
+# Resource limits — fixit should be invisible
+MemoryMax=100M
+CPUQuota=5%
+
+# Environment
+Environment=ANTHROPIC_API_KEY=
+EnvironmentFile=-/root/.fixit/.env
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=fixit-heartbeat
+
+[Install]
+WantedBy=multi-user.target

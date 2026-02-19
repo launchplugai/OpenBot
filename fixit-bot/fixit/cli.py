@@ -5,6 +5,9 @@ Usage:
     fixit label [SAMPLE_ID] [--batch N] [--review]
     fixit status
     fixit watch [--interval SECS] [--threshold FLOAT]
+    fixit heartbeat [--once] [--config PATH] [--interval SECS]
+    fixit pool [--category fix|upgrade|patch] [--resolve ID] [--implement ID]
+    fixit report
 """
 
 from __future__ import annotations
@@ -50,6 +53,26 @@ def main(argv: list[str] | None = None) -> int:
     watch_p.add_argument("--threshold", type=float, default=0.7, help="Min confidence to report")
     watch_p.add_argument("--plugin", help="Load a stack plugin")
 
+    # ── heartbeat ─────────────────────────────────────────────────────
+    hb_p = sub.add_parser("heartbeat", help="Autonomous background pulse")
+    hb_p.add_argument("--once", action="store_true", help="Run one beat then exit")
+    hb_p.add_argument("--config", help="Path to heartbeat config JSON")
+    hb_p.add_argument("--interval", type=int, help="Override beat interval (seconds)")
+    hb_p.add_argument("--plugin", help="Load a stack plugin")
+    hb_p.add_argument("--repo", default=".", help="Repository path to watch")
+
+    # ── pool ──────────────────────────────────────────────────────────
+    pool_p = sub.add_parser("pool", help="View and manage the suggestion pool")
+    pool_p.add_argument("--category", choices=["fix", "upgrade", "patch"], help="Filter by category")
+    pool_p.add_argument("--resolve", metavar="ID", help="Mark a fix as resolved")
+    pool_p.add_argument("--implement", metavar="ID", help="Mark an upgrade as implemented")
+    pool_p.add_argument("--deprecate", metavar="ID", help="Deprecate an item")
+    pool_p.add_argument("--stats", action="store_true", help="Show pool statistics")
+    pool_p.add_argument("--json", dest="as_json", action="store_true", help="Output as JSON")
+
+    # ── report ────────────────────────────────────────────────────────
+    sub.add_parser("report", help="Generate the suggestion report now")
+
     args = parser.parse_args(argv)
 
     if args.command == "scan":
@@ -60,6 +83,12 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_status(args)
     elif args.command == "watch":
         return cmd_watch(args)
+    elif args.command == "heartbeat":
+        return cmd_heartbeat(args)
+    elif args.command == "pool":
+        return cmd_pool(args)
+    elif args.command == "report":
+        return cmd_report(args)
     else:
         parser.print_help()
         return 0
@@ -218,6 +247,119 @@ def cmd_watch(args) -> int:
     except KeyboardInterrupt:
         print(f"\nStopped after {scan_num} scans.")
         return 0
+
+
+def cmd_heartbeat(args) -> int:
+    """Run the autonomous heartbeat."""
+    from fixit.heartbeat import Heartbeat, HeartbeatConfig
+
+    # Load config
+    if args.config:
+        config = HeartbeatConfig.from_file(args.config)
+    else:
+        config = HeartbeatConfig()
+
+    # Apply CLI overrides
+    if args.interval:
+        config.beat_interval = args.interval
+    if args.plugin:
+        config.plugin = args.plugin
+    if args.repo:
+        config.repo_path = args.repo
+        if not config.lint_paths:
+            config.lint_paths = [args.repo]
+
+    hb = Heartbeat(config=config)
+
+    if args.once:
+        result = hb.beat()
+        print(f"Beat complete: frame={result.frame_used}, "
+              f"+{result.findings_added} new, ~{result.findings_merged} merged, "
+              f"pool={result.pool_size}, {result.duration_ms}ms")
+        if result.report_generated:
+            print("\nReport generated:")
+            print(hb.report())
+        return 0
+    else:
+        print(f"fixit heartbeat: every {config.beat_interval}s, "
+              f"reports every {config.report_interval}s")
+        print("Press Ctrl+C to stop.\n")
+        hb.run_forever()
+        return 0
+
+
+def cmd_pool(args) -> int:
+    """View and manage the suggestion pool."""
+    from fixit.suggestions import SuggestionPool
+
+    pool = SuggestionPool(Path("~/.fixit/pool").expanduser())
+
+    # Actions
+    if args.resolve:
+        s = pool.resolve(args.resolve)
+        print(f"Resolved: {s.title}")
+        return 0
+    if args.implement:
+        s = pool.implement(args.implement)
+        print(f"Implemented: {s.title}")
+        return 0
+    if args.deprecate:
+        s = pool.deprecate(args.deprecate)
+        print(f"Deprecated: {s.title}")
+        return 0
+
+    # Stats view
+    if args.stats:
+        stats = pool.stats()
+        if args.as_json:
+            print(json.dumps(stats, indent=2))
+        else:
+            print(f"""
+{'=' * 44}
+  fixit.bot — Pool Stats
+{'=' * 44}
+  Total:     {stats['total']} items
+  Open:      {stats['open']}
+    Fix:     {stats['by_category']['fix']}
+    Upgrade: {stats['by_category']['upgrade']}
+    Patch:   {stats['by_category']['patch']}
+  Avg age:   {stats['avg_age_days']} days
+  Stale:     {stats['stale_count']}
+  Recurring: {stats['recurring']}
+{'=' * 44}
+""")
+        return 0
+
+    # List view
+    items = pool.open_items(category=args.category)
+    if not items:
+        print("Pool is empty." if not args.category else f"No open {args.category} items.")
+        return 0
+
+    if args.as_json:
+        print(json.dumps([s.to_dict() for s in items], indent=2))
+    else:
+        current_cat = None
+        for s in items:
+            if s.category != current_cat:
+                current_cat = s.category
+                print(f"\n{current_cat.upper()}S:")
+            recur = f" (x{s.seen_count})" if s.seen_count > 1 else ""
+            age = f" [{s.age_days():.0f}d]" if s.age_days() > 1 else ""
+            print(f"  {s.id}  [{s.confidence:.0%}] {s.title}{recur}{age}")
+            if s.command:
+                print(f"          Fix: {s.command}")
+
+    return 0
+
+
+def cmd_report(args) -> int:
+    """Generate the suggestion report."""
+    from fixit.suggestions import SuggestionPool
+
+    pool = SuggestionPool(Path("~/.fixit/pool").expanduser())
+    print(pool.report())
+    return 0
 
 
 def _build_crow(path: str) -> Crow:

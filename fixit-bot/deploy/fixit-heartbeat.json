@@ -1,0 +1,20 @@
+{
+  "beat_interval": 900,
+  "report_interval": 7200,
+
+  "lint_paths": ["/opt/openbot", "/root/.openclaw"],
+  "log_units": ["openclaw-gateway"],
+  "log_files": [],
+  "repo_path": "/opt/openbot",
+  "config_paths": ["/root/.openclaw/openclaw.json", "/root/.openclaw/agents"],
+  "session_dir": "/tmp/openclaw/sessions",
+
+  "plugin": "openbot",
+
+  "min_confidence": 0.6,
+  "report_threshold": 0.5,
+  "max_findings_per_beat": 5,
+
+  "report_path": "/root/.fixit/latest-report.txt",
+  "report_callback": null
+}
