@@ -458,6 +458,7 @@ Invalid receipts are quarantined, not discarded. Nothing is lost.
 5. **ANTHROPIC_API_KEY:** Goes in openclaw.json env, NOT systemd `Environment=`.
 6. **SSM heredocs break:** Use base64-encoded Python scripts for complex remote commands.
 7. **t3.medium (4GB):** Gateway uses 400-1000MB. 4GB gives comfortable headroom for 4 workers.
+8. **Web search on EC2:** Never run a browser on the t3.medium. Use Kimi's server-side `$web_search` or BYOC to Kimi Claw for browser tasks.
 
 ---
 
@@ -491,7 +492,81 @@ Invalid receipts are quarantined, not discarded. Nothing is lost.
 
 ---
 
-## 14. Cost Targets
+## 14. Web Search (Phase 1)
+
+### Architecture
+
+```
+User -> Telegram -> EC2 (Gateway) -> Kimi K2.5 API -> $web_search (Moonshot infra)
+                                                              |
+                                                     Search runs server-side
+                                                     EC2 never touches the web
+                                                              |
+                                         EC2 <- API response <- Kimi synthesizes answer
+                                           |
+                                        Telegram -> User
+```
+
+### How It Works
+
+- Kimi K2.5 has native `$web_search` — a built-in tool that runs on Moonshot's infrastructure
+- OpenClaw passes the tool in API calls; Kimi decides when to search based on the query
+- Search execution happens on Moonshot servers, not on EC2
+- EC2 only sends/receives JSON over HTTPS to known API endpoints
+- No browser process, no arbitrary web access, no extra RAM usage
+
+### Security Model
+
+- EC2 outbound traffic: unchanged (HTTPS to api.moonshot.cn, api.openai.com)
+- No new ports opened, no new services running
+- SSM audit trail still covers all admin access
+- Natural security barrier: EC2 is a relay, Moonshot does the browsing
+
+### Config Changes
+
+Enabled in `openclaw.json`:
+```json
+{
+  "tools": {
+    "alsoAllow": ["web_search", "web_fetch"],
+    "web": {
+      "search": { "enabled": true },
+      "fetch": { "enabled": true }
+    }
+  }
+}
+```
+
+Kimi native tool in `models.json`:
+```json
+{
+  "nativeTools": [
+    { "type": "builtin_function", "function": { "name": "$web_search" } }
+  ]
+}
+```
+
+### Deployment
+
+```bash
+# Via SSM
+bash /opt/openbot/scripts/enable-web-search.sh
+
+# Rollback
+cp /root/.openclaw/config-profiles/pre-websearch-backup/openclaw.json.* \
+   /root/.openclaw/openclaw.json && systemctl restart openclaw-gateway
+```
+
+### Phase 2 (Future): Full Browser
+
+- BYOC bridge to Kimi Claw cloud browser
+- Full Chromium automation (navigate, click, screenshot, scrape)
+- Runs on Moonshot infra, not EC2 — t3.medium stays clean
+- Requires Kimi Claw account + BYOC gateway config
+
+---
+
+## 15. Cost Targets
 
 | Metric | Target |
 |--------|--------|
