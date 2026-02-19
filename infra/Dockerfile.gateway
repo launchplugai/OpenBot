@@ -1,0 +1,67 @@
+# Dockerfile.gateway — OpenClaw Gateway container for Fargate
+#
+# Runs the OpenClaw gateway on port 18789.
+# Expects:
+#   - EFS mounted at /root/.openclaw (memory, config, agents)
+#   - Secrets injected as env vars via Secrets Manager
+#   - entrypoint-gateway.sh patches config from env before starting
+#
+# Build:
+#   docker build -t openclaw-gateway:latest -f infra/Dockerfile.gateway .
+#
+# Local test:
+#   docker run -p 18789:18789 \
+#     -v /tmp/test-efs:/root/.openclaw \
+#     -e ANTHROPIC_API_KEY=sk-ant-test \
+#     -e MOONSHOT_API_KEY=test \
+#     -e TELEGRAM_BOT_TOKEN=test \
+#     openclaw-gateway:latest
+
+FROM node:22-slim
+
+LABEL org.opencontainers.image.source="https://github.com/launchplugai/OpenBot"
+LABEL org.opencontainers.image.description="OpenClaw Gateway for Fargate"
+
+# System deps
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends \
+      curl \
+      jq \
+      python3 \
+      python3-pip \
+      ca-certificates && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install OpenClaw globally
+# Pin version for reproducibility — update this when upgrading
+ARG OPENCLAW_VERSION=latest
+RUN npm install -g "openclaw@${OPENCLAW_VERSION}" && \
+    npm cache clean --force
+
+# Create directory structure
+RUN mkdir -p /root/.openclaw/memory/daily \
+             /root/.openclaw/memory/metrics/session-reports \
+             /root/.openclaw/agents/main/agent \
+             /root/.openclaw/hooks/transforms \
+             /root/.openclaw/config-profiles \
+             /root/.openclaw/workspace \
+             /tmp/openclaw/sessions
+
+# Copy entrypoint script
+COPY infra/entrypoint-gateway.sh /usr/local/bin/entrypoint-gateway.sh
+RUN chmod +x /usr/local/bin/entrypoint-gateway.sh
+
+# Copy OpenBot repo (for scripts + memory hardening)
+COPY scripts/ /opt/openbot/scripts/
+COPY runtime/ /opt/openbot/runtime/
+COPY policies/ /opt/openbot/policies/
+
+# Gateway listens on 18789
+EXPOSE 18789
+
+# Health check — gateway takes ~50s to start, so start period is generous
+HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
+  CMD curl -sf http://localhost:18789/ || exit 1
+
+ENTRYPOINT ["/usr/local/bin/entrypoint-gateway.sh"]

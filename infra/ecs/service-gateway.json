@@ -1,0 +1,38 @@
+{
+  "_comment": "ECS Service definition for OpenClaw Gateway. Replace CLUSTER, SUBNETS, SG, and TG ARNs.",
+  "serviceName": "openclaw-gateway",
+  "cluster": "openclaw",
+  "taskDefinition": "openclaw-gateway",
+  "desiredCount": 1,
+  "launchType": "FARGATE",
+  "platformVersion": "LATEST",
+  "networkConfiguration": {
+    "awsvpcConfiguration": {
+      "subnets": [
+        "PRIVATE_SUBNET_1",
+        "PRIVATE_SUBNET_2"
+      ],
+      "securityGroups": [
+        "SG_GATEWAY"
+      ],
+      "assignPublicIp": "DISABLED"
+    }
+  },
+  "loadBalancers": [
+    {
+      "targetGroupArn": "arn:aws:elasticloadbalancing:REGION:ACCOUNT_ID:targetgroup/openclaw-tg/XXXX",
+      "containerName": "openclaw-gateway",
+      "containerPort": 18789
+    }
+  ],
+  "healthCheckGracePeriodSeconds": 120,
+  "deploymentConfiguration": {
+    "maximumPercent": 200,
+    "minimumHealthyPercent": 100,
+    "deploymentCircuitBreaker": {
+      "enable": true,
+      "rollback": true
+    }
+  },
+  "enableExecuteCommand": true
+}

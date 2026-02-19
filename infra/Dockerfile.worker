@@ -1,0 +1,56 @@
+# Dockerfile.worker — OpenBot Worker container for Fargate
+#
+# Runs OpenBot CLI (doctor, run, self-test) as scheduled or one-off tasks.
+# Expects:
+#   - EFS mounted at /root/.openclaw (shared with gateway)
+#   - /var/lib/openbot for runtime data (ephemeral or EFS sub-mount)
+#   - Secrets injected as env vars for GitHub PAT
+#
+# Build:
+#   docker build -t openbot-worker:latest -f infra/Dockerfile.worker .
+#
+# Local test:
+#   docker run --rm \
+#     -v /tmp/test-efs:/root/.openclaw \
+#     -e GITHUB_TOKEN=ghp_test \
+#     openbot-worker:latest doctor --local
+
+FROM python:3.12-slim
+
+LABEL org.opencontainers.image.source="https://github.com/launchplugai/OpenBot"
+LABEL org.opencontainers.image.description="OpenBot Worker for Fargate"
+
+# System deps
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends \
+      git \
+      curl \
+      jq \
+      ca-certificates && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create runtime directories
+RUN mkdir -p /var/lib/openbot/logs \
+             /var/lib/openbot/receipts/quarantine \
+             /var/lib/openbot/workdir \
+             /etc/openbot \
+             /root/.openclaw/memory
+
+# Copy the full OpenBot repo
+COPY . /opt/openbot/
+WORKDIR /opt/openbot
+
+# Install OpenBot package
+RUN pip install --no-cache-dir -e /opt/openbot
+
+# Copy entrypoint
+COPY infra/entrypoint-worker.sh /usr/local/bin/entrypoint-worker.sh
+RUN chmod +x /usr/local/bin/entrypoint-worker.sh
+
+# Wrapper script (matches EC2 convention)
+RUN echo '#!/bin/bash\nexec python -m openbot.cli "$@"' > /usr/local/bin/openbot && \
+    chmod +x /usr/local/bin/openbot
+
+ENTRYPOINT ["/usr/local/bin/entrypoint-worker.sh"]
+CMD ["doctor", "--local"]

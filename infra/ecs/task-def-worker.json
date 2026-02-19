@@ -1,0 +1,61 @@
+{
+  "_comment": "ECS Task Definition for OpenBot Worker. Runs as one-off or scheduled task. Replace ACCOUNT_ID, REGION, EFS_ID.",
+  "family": "openbot-worker",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/openbotWorkerRole",
+  "volumes": [
+    {
+      "name": "openclaw-efs",
+      "efsVolumeConfiguration": {
+        "fileSystemId": "EFS_FILE_SYSTEM_ID",
+        "rootDirectory": "/",
+        "transitEncryption": "ENABLED",
+        "authorizationConfig": {
+          "accessPointId": "EFS_ACCESS_POINT_ID",
+          "iam": "ENABLED"
+        }
+      }
+    }
+  ],
+  "containerDefinitions": [
+    {
+      "name": "openbot-worker",
+      "image": "ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/openbot-worker:latest",
+      "essential": true,
+      "mountPoints": [
+        {
+          "sourceVolume": "openclaw-efs",
+          "containerPath": "/root/.openclaw",
+          "readOnly": false
+        }
+      ],
+      "secrets": [
+        {
+          "name": "GITHUB_TOKEN",
+          "valueFrom": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:openclaw/github-pat"
+        }
+      ],
+      "environment": [
+        {
+          "name": "OPENBOT_HOME",
+          "value": "/var/lib/openbot"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/openbot-worker",
+          "awslogs-region": "REGION",
+          "awslogs-stream-prefix": "worker"
+        }
+      },
+      "linuxParameters": {
+        "initProcessEnabled": true
+      }
+    }
+  ]
+}
