@@ -557,12 +557,73 @@ cp /root/.openclaw/config-profiles/pre-websearch-backup/openclaw.json.* \
    /root/.openclaw/openclaw.json && systemctl restart openclaw-gateway
 ```
 
-### Phase 2 (Future): Full Browser
+### Phase 2: Full Browser
 
-- BYOC bridge to Kimi Claw cloud browser
-- Full Chromium automation (navigate, click, screenshot, scrape)
-- Runs on Moonshot infra, not EC2 — t3.medium stays clean
-- Requires Kimi Claw account + BYOC gateway config
+Two options — both keep the browser OFF EC2's native process space.
+
+#### Option A: Sandbox Browser Sidecar (Self-Contained)
+
+Docker container running headless Chromium, memory-capped at 1GB:
+
+```bash
+bash /opt/openbot/scripts/enable-browser.sh --sandbox
+```
+
+- Pulls `ghcr.io/canyugs/openclaw-sandbox-browser:main`
+- Runs on `127.0.0.1:9222` (localhost only, no external exposure)
+- CDP (Chrome DevTools Protocol) for all browser operations
+- Memory limit: 1GB (prevents runaway on t3.medium)
+- RAM overhead: ~500MB-1GB alongside gateway
+- Works for single-agent headless browsing and scraping
+
+Config added to `openclaw.json`:
+```json
+{
+  "browser": {
+    "enabled": true,
+    "headless": true,
+    "attachOnly": true,
+    "defaultProfile": "remote",
+    "profiles": {
+      "remote": { "cdpUrl": "http://127.0.0.1:9222" }
+    }
+  }
+}
+```
+
+Management:
+```bash
+enable-browser.sh --status    # Check container + CDP + config
+enable-browser.sh --stop      # Stop and remove container
+docker stats openclaw-sandbox-browser --no-stream  # RAM usage
+```
+
+#### Option B: BYOC to Kimi Claw (Zero EC2 RAM)
+
+Browser runs on Moonshot's cloud infrastructure via Kimi Claw:
+
+```bash
+bash /opt/openbot/scripts/enable-browser.sh --byoc
+```
+
+- Requires Kimi Claw Allegretto membership (~$19/mo)
+- Install Kimi plugin: `openclaw install kimi`
+- Link account via kimi.com/settings/claw
+- Browser operations route through Kimi's cloud — zero EC2 impact
+- Ideal for heavy browsing, multiple concurrent pages, rich scraping
+
+#### Which to Choose
+
+| Factor | Sandbox (A) | BYOC (B) |
+|--------|------------|-----------|
+| EC2 RAM impact | ~500MB-1GB | Zero |
+| External dependency | None (Docker only) | Kimi Claw account |
+| Concurrent pages | 1-2 safely | Many |
+| Monthly cost | $0 (self-hosted) | ~$19 + API tokens |
+| Setup complexity | One command | Account + plugin |
+| Heavy page loads | May OOM on t3.medium | Handles anything |
+
+Recommendation: Start with **Sandbox (A)** for immediate capability. Move to **BYOC (B)** when browser usage grows or t3.medium memory becomes a bottleneck.
 
 ---
 
