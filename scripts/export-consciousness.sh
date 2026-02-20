@@ -1,7 +1,7 @@
 #!/bin/bash
 # export-consciousness.sh — Export OpenClaw memory, config, and system prompt
 #
-# Dumps everything the crow needs to reconstitute on a fresh EC2:
+# Dumps everything the crow needs to reconstitute on a fresh host:
 #   - Memory (MEMORY.md, lessons, daily notes, taskboard, decisions, metrics)
 #   - Config profiles (backup/normal mode switchers)
 #   - Agent config (system.md, models.json, auth-profiles.json structure)
@@ -12,11 +12,12 @@
 #
 # Output: /tmp/openclaw-transplant-<timestamp>.tar.gz
 #
-# Run via SSM:
-#   aws ssm send-command --instance-id i-0dd3b26129b0681ce \
-#     --document-name AWS-RunShellScript \
-#     --parameters 'commands=["bash /opt/openbot/scripts/export-consciousness.sh"]' \
-#     --region us-east-2
+# Works on any host (VPS, EC2, local). No AWS dependencies.
+#
+# Usage:
+#   bash /opt/openbot/scripts/export-consciousness.sh
+#   bash /opt/openbot/scripts/export-consciousness.sh --dry-run
+#   bash /opt/openbot/scripts/export-consciousness.sh --to-repo
 #
 # Modes:
 #   (no args)      Full export to tarball
@@ -147,7 +148,7 @@ echo "  Writing version manifest..."
 cat > "$STAGING_DIR/manifest.json" << MANEOF
 {
   "exported_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-  "source_instance": "$(curl -s --connect-timeout 2 http://169.254.169.254/latest/meta-data/instance-id 2>/dev/null || echo 'unknown')",
+  "source_instance": "$(curl -s --connect-timeout 2 http://169.254.169.254/latest/meta-data/instance-id 2>/dev/null || hostname -f 2>/dev/null || echo 'unknown')",
   "openclaw_version": "$(openclaw --version 2>/dev/null || echo 'unknown')",
   "node_version": "$(node --version 2>/dev/null || echo 'unknown')",
   "hostname": "$(hostname)",
@@ -264,7 +265,10 @@ if [ "$MODE" = "export" ] || [ "$MODE" = "" ]; then
     echo "  To extract on new box:"
     echo "    mkdir -p /root/.openclaw-transplant"
     echo "    tar xzf openclaw-transplant-*.tar.gz -C /root/.openclaw-transplant"
-    echo "    bash /opt/openbot/scripts/bootstrap-new-ec2.sh --from-transplant /root/.openclaw-transplant"
+    echo ""
+    echo "  Then bootstrap (pick one):"
+    echo "    bash /opt/openbot/scripts/bootstrap-hostinger.sh --yes --from-transplant /root/.openclaw-transplant"
+    echo "    bash /opt/openbot/scripts/bootstrap-new-ec2.sh --yes --from-transplant /root/.openclaw-transplant"
 fi
 
 # ── Cleanup ────────────────────────────────────────────────────────────────

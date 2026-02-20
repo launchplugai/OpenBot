@@ -6,12 +6,12 @@
 #   --diagnose    Diagnostics only, no restart
 #   --restart     Clear sessions + restart only (skip diagnostics)
 #
-# Run via SSM:
-#   aws ssm send-command --instance-id i-0dd3b26129b0681ce \
-#     --document-name AWS-RunShellScript \
-#     --parameters 'commands=["bash /opt/openbot/scripts/fix-openclaw-gateway.sh"]' \
-#     --region us-east-2
-# Or paste into an SSM Session Manager terminal.
+# Works on any host (VPS, EC2, local). No AWS dependencies.
+#
+# Usage:
+#   bash /opt/openbot/scripts/fix-openclaw-gateway.sh
+#   bash /opt/openbot/scripts/fix-openclaw-gateway.sh --diagnose
+#   bash /opt/openbot/scripts/fix-openclaw-gateway.sh --restart
 
 set -euo pipefail
 
@@ -193,7 +193,44 @@ print(f'Browser:    {\"enabled\" if be else \"disabled\"} (profile: {bp})')
     fi
     echo ""
 
-    # 10. Recent logs (errors only)
+    # 10. Firewall (VPS-relevant)
+    echo "--- Firewall ---"
+    if command -v ufw &>/dev/null; then
+        UFW_STATUS=$(ufw status 2>/dev/null | head -1)
+        echo "  UFW: $UFW_STATUS"
+        if ufw status | grep -q "$GATEWAY_PORT" 2>/dev/null; then
+            echo "  Port $GATEWAY_PORT rule: found"
+            ufw status | grep "$GATEWAY_PORT" 2>/dev/null | sed 's/^/    /'
+        else
+            echo "  Port $GATEWAY_PORT rule: NONE (gateway only reachable on localhost)"
+        fi
+    else
+        echo "  UFW: not installed"
+    fi
+    echo ""
+
+    # 11. VPN status
+    echo "--- VPN ---"
+    if command -v tailscale &>/dev/null; then
+        if tailscale status &>/dev/null; then
+            TS_IP=$(tailscale ip -4 2>/dev/null || echo "unknown")
+            echo "  Tailscale: connected ($TS_IP)"
+        else
+            echo "  Tailscale: installed but NOT connected"
+        fi
+    elif command -v wg &>/dev/null; then
+        WG_IF=$(wg show 2>/dev/null | head -1)
+        if [ -n "$WG_IF" ]; then
+            echo "  WireGuard: active ($WG_IF)"
+        else
+            echo "  WireGuard: installed but no active interfaces"
+        fi
+    else
+        echo "  No VPN detected (tailscale/wireguard)"
+    fi
+    echo ""
+
+    # 12. Recent logs (errors only)
     echo "--- Recent Errors (last 100 log lines) ---"
     journalctl -u openclaw-gateway --no-pager -n 100 2>/dev/null \
         | grep -iE "(error|fatal|exception|timeout|EPERM|refused|denied)" \
