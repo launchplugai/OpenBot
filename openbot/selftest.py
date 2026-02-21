@@ -609,6 +609,163 @@ def test_receipt_with_pytest_counts():
     return True
 
 
+def test_openclaw_config_check():
+    """Test check_openclaw_config returns safe structure when config absent."""
+    print("TEST: OpenClaw config check... ", end="")
+
+    from openbot.utils import check_openclaw_config, OPENCLAW_CONFIG_PATH
+
+    result = check_openclaw_config()
+
+    # Must always return a dict with expected keys — never raise
+    assert isinstance(result, dict), "Expected dict result"
+    assert "found" in result, "Missing 'found' key"
+    assert "valid_json" in result, "Missing 'valid_json' key"
+    assert "writable" in result, "Missing 'writable' key"
+    assert "path" in result, "Missing 'path' key"
+    assert result["path"] == str(OPENCLAW_CONFIG_PATH), "Wrong path in result"
+
+    # In this test environment, openclaw.json is not installed
+    if not OPENCLAW_CONFIG_PATH.exists():
+        assert result["found"] is False, "Expected found=False when config missing"
+        assert result["valid_json"] is False, "Expected valid_json=False when missing"
+
+    print("PASSED")
+    return True
+
+
+def test_openclaw_gateway_check():
+    """Test check_openclaw_gateway returns safe structure when gateway is down."""
+    print("TEST: OpenClaw gateway check... ", end="")
+
+    from openbot.utils import check_openclaw_gateway, OPENCLAW_GATEWAY_PORT
+
+    result = check_openclaw_gateway()
+
+    # Must always return a dict with expected keys — never raise
+    assert isinstance(result, dict), "Expected dict result"
+    assert "port" in result, "Missing 'port' key"
+    assert "port_listening" in result, "Missing 'port_listening' key"
+    assert "service" in result, "Missing 'service' key"
+    assert result["port"] == OPENCLAW_GATEWAY_PORT, "Wrong port in result"
+    assert isinstance(result["port_listening"], bool), "port_listening must be bool"
+
+    print("PASSED")
+    return True
+
+
+def test_openclaw_memory_check():
+    """Test check_openclaw_memory returns safe structure when memory dir absent."""
+    print("TEST: OpenClaw memory check... ", end="")
+
+    from openbot.utils import check_openclaw_memory, OPENCLAW_MEMORY_FILES, OPENCLAW_MEMORY_DIR
+
+    result = check_openclaw_memory()
+
+    # Must always return a dict with expected keys — never raise
+    assert isinstance(result, dict), "Expected dict result"
+    assert "memory_dir_exists" in result, "Missing 'memory_dir_exists' key"
+    assert "files" in result, "Missing 'files' key"
+    assert "missing_count" in result, "Missing 'missing_count' key"
+    assert isinstance(result["files"], dict), "files must be a dict"
+
+    # All required files should be accounted for
+    for fname in OPENCLAW_MEMORY_FILES:
+        assert fname in result["files"], f"Missing file entry: {fname}"
+
+    # missing_count should match actual missing files
+    actual_missing = sum(1 for present in result["files"].values() if not present)
+    assert result["missing_count"] == actual_missing, (
+        f"missing_count {result['missing_count']} != actual {actual_missing}"
+    )
+
+    print("PASSED")
+    return True
+
+
+def test_openclaw_sessions_check():
+    """Test check_openclaw_sessions returns safe structure when sessions dir absent."""
+    print("TEST: OpenClaw sessions check... ", end="")
+
+    from openbot.utils import check_openclaw_sessions
+
+    result = check_openclaw_sessions()
+
+    # Must always return a dict with expected keys — never raise
+    assert isinstance(result, dict), "Expected dict result"
+    assert "dir_exists" in result, "Missing 'dir_exists' key"
+    assert "count" in result, "Missing 'count' key"
+    assert "bloated" in result, "Missing 'bloated' key"
+    assert isinstance(result["count"], int), "count must be int"
+    assert isinstance(result["bloated"], bool), "bloated must be bool"
+
+    # In a clean environment, no bloat
+    if not result["dir_exists"]:
+        assert result["count"] == 0, "Expected count=0 when dir absent"
+        assert result["bloated"] is False, "Expected bloated=False when dir absent"
+
+    print("PASSED")
+    return True
+
+
+def test_doctor_openclaw_flag():
+    """Test that openbot doctor --openclaw outputs a valid JSON report with openclaw section."""
+    print("TEST: Doctor --openclaw flag... ", end="")
+
+    import subprocess
+
+    result = subprocess.run(
+        [sys.executable, "-m", "openbot.cli", "doctor", "--local", "--openclaw"],
+        capture_output=True,
+        text=True,
+        cwd=str(Path(__file__).parent.parent)
+    )
+
+    # Parse JSON output
+    try:
+        output_lines = result.stdout.strip().split('\n')
+        json_text = ""
+        brace_count = 0
+        for line in output_lines:
+            json_text += line + "\n"
+            brace_count += line.count('{') - line.count('}')
+            if brace_count == 0 and json_text.strip():
+                break
+        report = json.loads(json_text)
+    except json.JSONDecodeError as e:
+        print(f"FAILED: Doctor --openclaw output not valid JSON: {e}")
+        return False
+
+    # Must contain openclaw section in checks
+    if "openclaw" not in report.get("checks", {}):
+        print("FAILED: openclaw section missing from doctor checks")
+        return False
+
+    openclaw = report["checks"]["openclaw"]
+
+    # Must have all four OpenClaw check subsections
+    for key in ("config", "gateway", "memory_system", "sessions"):
+        if key not in openclaw:
+            print(f"FAILED: Missing '{key}' in openclaw checks")
+            return False
+
+    # Config must have the expected keys
+    cfg = openclaw["config"]
+    for key in ("found", "valid_json", "writable", "path"):
+        if key not in cfg:
+            print(f"FAILED: config missing key '{key}'")
+            return False
+
+    # Gateway must have port and port_listening
+    gw = openclaw["gateway"]
+    if "port" not in gw or "port_listening" not in gw:
+        print("FAILED: gateway missing port/port_listening")
+        return False
+
+    print("PASSED")
+    return True
+
+
 def run_all_tests() -> bool:
     """Run all self-tests."""
     print("=" * 50)
@@ -632,6 +789,11 @@ def run_all_tests() -> bool:
         test_config_yaml_parsing,
         test_pytest_output_parsing,
         test_receipt_with_pytest_counts,
+        test_openclaw_config_check,
+        test_openclaw_gateway_check,
+        test_openclaw_memory_check,
+        test_openclaw_sessions_check,
+        test_doctor_openclaw_flag,
     ]
 
     passed = 0

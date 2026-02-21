@@ -31,6 +31,10 @@ from openbot.utils import (
     check_disk_space,
     check_openbot_processes,
     check_systemd_service,
+    check_openclaw_config,
+    check_openclaw_gateway,
+    check_openclaw_memory,
+    check_openclaw_sessions,
 )
 from openbot.runner import Runner
 from openbot.policy import PolicyLoader
@@ -169,10 +173,66 @@ def cmd_doctor(args) -> int:
             report["errors"].append("systemd service result: timeout (last run timed out)")
             liveness_ok = False
 
+    # OpenClaw-specific diagnostics (only when --openclaw flag is set)
+    openclaw_ok = True
+    if getattr(args, "openclaw", False):
+        report["checks"]["openclaw"] = {}
+
+        # Config file
+        cfg = check_openclaw_config()
+        report["checks"]["openclaw"]["config"] = cfg
+        if not cfg["found"]:
+            report["errors"].append(
+                f"OpenClaw config not found: {cfg['path']} — gateway cannot start"
+            )
+            openclaw_ok = False
+        elif not cfg["valid_json"]:
+            report["errors"].append(
+                f"OpenClaw config is invalid JSON: {cfg['path']} — gateway will crash"
+            )
+            openclaw_ok = False
+        elif not cfg["writable"]:
+            report["errors"].append(
+                f"OpenClaw config not writable: {cfg['path']} — gateway will crash (EPERM)"
+            )
+            openclaw_ok = False
+
+        # Gateway port + service
+        gw = check_openclaw_gateway()
+        report["checks"]["openclaw"]["gateway"] = gw
+        if not gw["port_listening"]:
+            report["errors"].append(
+                f"OpenClaw gateway not listening on port {gw['port']} — service is down"
+            )
+            openclaw_ok = False
+        if gw.get("service") and gw["service"].get("Result") == "timeout":
+            report["errors"].append("OpenClaw gateway service result: timeout")
+            openclaw_ok = False
+
+        # Memory system
+        mem = check_openclaw_memory()
+        report["checks"]["openclaw"]["memory_system"] = mem
+        if mem["missing_count"] > 0:
+            missing = [f for f, present in mem["files"].items() if not present]
+            report["errors"].append(
+                f"OpenClaw memory files missing ({mem['missing_count']}): {', '.join(missing)}"
+            )
+            openclaw_ok = False
+
+        # Session bloat
+        sessions = check_openclaw_sessions()
+        report["checks"]["openclaw"]["sessions"] = sessions
+        if sessions["bloated"]:
+            report["errors"].append(
+                f"OpenClaw session bloat: {sessions['count']} sessions in "
+                f"{sessions['sessions_dir']} (>40 causes context timeout)"
+            )
+            openclaw_ok = False
+
     # Determine overall status
     if not binaries_ok or not dirs_ok:
         report["overall_status"] = "UNHEALTHY"
-    elif not policies_ok or not liveness_ok:
+    elif not policies_ok or not liveness_ok or not openclaw_ok:
         report["overall_status"] = "DEGRADED"
     else:
         report["overall_status"] = "HEALTHY"
@@ -466,6 +526,11 @@ def main():
         "--local",
         action="store_true",
         help="Use local paths instead of system paths"
+    )
+    doctor_parser.add_argument(
+        "--openclaw",
+        action="store_true",
+        help="Include OpenClaw gateway diagnostics (config, port, memory, sessions)"
     )
 
     # Run command

@@ -376,6 +376,133 @@ def check_systemd_service(service_name: str = "openbot-run.service") -> Optional
         return None
 
 
+# ── OpenClaw-specific diagnostics ──────────────────────────────────────────
+
+OPENCLAW_CONFIG_PATH = Path("/root/.openclaw/openclaw.json")
+OPENCLAW_MEMORY_DIR = Path("/root/.openclaw/memory")
+OPENCLAW_SESSIONS_DIR = Path("/tmp/openclaw/sessions")
+OPENCLAW_GATEWAY_PORT = 18789
+OPENCLAW_MEMORY_FILES = [
+    "MEMORY.md",
+    "current-work.json",
+    "taskboard.json",
+    "lessons.json",
+    "decisions.md",
+]
+
+
+def check_openclaw_config() -> Dict[str, Any]:
+    """
+    Check OpenClaw config file validity.
+
+    Returns dict with found, valid_json, writable status.
+    Does not raise — safe to call in any environment.
+    """
+    result: Dict[str, Any] = {
+        "path": str(OPENCLAW_CONFIG_PATH),
+        "found": False,
+        "valid_json": False,
+        "writable": False,
+    }
+    try:
+        if not OPENCLAW_CONFIG_PATH.exists():
+            return result
+        result["found"] = True
+        result["writable"] = os.access(str(OPENCLAW_CONFIG_PATH), os.W_OK)
+        with open(OPENCLAW_CONFIG_PATH, "r") as f:
+            json.load(f)
+        result["valid_json"] = True
+    except (OSError, PermissionError):
+        pass
+    except json.JSONDecodeError:
+        pass
+    return result
+
+
+def check_openclaw_gateway() -> Dict[str, Any]:
+    """
+    Check OpenClaw gateway service and port.
+
+    Uses Python socket instead of ss/netstat — no external binary required.
+    Returns dict with port_listening and optional service status.
+    """
+    import socket as _socket
+
+    result: Dict[str, Any] = {
+        "port": OPENCLAW_GATEWAY_PORT,
+        "port_listening": False,
+        "service": None,
+    }
+
+    # Pure-Python port check — works even without ss/netstat
+    try:
+        with _socket.create_connection(("127.0.0.1", OPENCLAW_GATEWAY_PORT), timeout=2):
+            result["port_listening"] = True
+    except (OSError, _socket.error):
+        result["port_listening"] = False
+
+    # Systemd service check (gracefully returns None on non-systemd hosts)
+    svc = check_systemd_service("openclaw-gateway")
+    if svc:
+        result["service"] = svc
+
+    return result
+
+
+def check_openclaw_memory() -> Dict[str, Any]:
+    """
+    Check OpenClaw memory system files.
+
+    Returns dict with per-file presence and missing count.
+    """
+    result: Dict[str, Any] = {
+        "memory_dir": str(OPENCLAW_MEMORY_DIR),
+        "memory_dir_exists": safe_path_exists(OPENCLAW_MEMORY_DIR),
+        "files": {},
+        "missing_count": 0,
+        "daily_notes": None,
+    }
+
+    for fname in OPENCLAW_MEMORY_FILES:
+        exists = safe_path_exists(OPENCLAW_MEMORY_DIR / fname)
+        result["files"][fname] = exists
+        if not exists:
+            result["missing_count"] += 1
+
+    daily_dir = OPENCLAW_MEMORY_DIR / "daily"
+    if safe_path_exists(daily_dir):
+        try:
+            result["daily_notes"] = len(list(daily_dir.iterdir()))
+        except (OSError, PermissionError):
+            result["daily_notes"] = 0
+
+    return result
+
+
+def check_openclaw_sessions() -> Dict[str, Any]:
+    """
+    Check OpenClaw session count (bloat detection).
+
+    Returns dict with count and bloated flag (>40 sessions).
+    """
+    result: Dict[str, Any] = {
+        "sessions_dir": str(OPENCLAW_SESSIONS_DIR),
+        "dir_exists": False,
+        "count": 0,
+        "bloated": False,
+    }
+    try:
+        if not OPENCLAW_SESSIONS_DIR.exists():
+            return result
+        result["dir_exists"] = True
+        entries = list(OPENCLAW_SESSIONS_DIR.iterdir())
+        result["count"] = len(entries)
+        result["bloated"] = len(entries) > 40
+    except (OSError, PermissionError):
+        pass
+    return result
+
+
 class Logger:
     """Simple logger that writes to file and optionally stdout."""
 
