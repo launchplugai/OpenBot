@@ -247,8 +247,35 @@ fi
 
 # ── 7. Start gateway ─────────────────────────────────────────────────────
 
+# Railway injects PORT dynamically. openclaw gateway defaults to 18789.
+# Normalize: if Railway sets PORT to something other than 18789, honour it.
+# If PORT is unset (local/ECS), default to 18789.
+GATEWAY_PORT="${PORT:-18789}"
+
+# Patch the port into openclaw.json if it has a port field, so openclaw
+# respects whatever port Railway assigns. No-op if config lacks the key.
+if [ -f "$CONFIG" ] && [ "$GATEWAY_PORT" != "18789" ]; then
+    python3 - "$CONFIG" "$GATEWAY_PORT" << 'PYEOF'
+import json, sys
+path, port = sys.argv[1], int(sys.argv[2])
+with open(path) as f:
+    cfg = json.load(f)
+if 'port' in cfg:
+    cfg['port'] = port
+    with open(path, 'w') as f:
+        json.dump(cfg, f, indent=2, ensure_ascii=False)
+        f.write('\n')
+    print(f"  Patched openclaw.json port → {port}")
+PYEOF
+fi
+
+# Export PORT explicitly so Node.js process.env.PORT is always set.
+# openclaw reads process.env.PORT in newer versions; older versions use
+# the config file value patched above.
+export PORT="$GATEWAY_PORT"
+
 echo "=== Starting OpenClaw Gateway ==="
-echo "Port: 18789"
+echo "Port: $GATEWAY_PORT"
 echo "Config: $CONFIG"
 echo ""
 

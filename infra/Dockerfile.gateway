@@ -57,11 +57,13 @@ COPY scripts/ /opt/openbot/scripts/
 COPY runtime/ /opt/openbot/runtime/
 COPY policies/ /opt/openbot/policies/
 
-# Gateway listens on 18789
+# Gateway listens on 18789 by default; Railway may override via PORT env var.
+# EXPOSE is documentation only — the actual port comes from entrypoint at runtime.
 EXPOSE 18789
 
-# Health check — gateway takes ~50s to start, so start period is generous
+# Health check — uses PORT env var so it works on both Railway (dynamic PORT)
+# and ECS/local (hardcoded 18789). Gateway takes ~50s to start.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
-  CMD curl -sf http://localhost:18789/ || exit 1
+  CMD curl -sf "http://localhost:${PORT:-18789}/" || exit 1
 
 ENTRYPOINT ["/usr/local/bin/entrypoint-gateway.sh"]
