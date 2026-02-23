@@ -1,0 +1,18 @@
+[Unit]
+Description=OpenClaw Gateway — Agent Coordination for OpenBot
+After=network.target dna-matrix.service
+Wants=dna-matrix.service
+
+[Service]
+Type=simple
+User=openbot
+Group=openbot
+WorkingDirectory=/opt/openbot
+ExecStart=/opt/openbot/venv/bin/python -m openclaw
+Restart=on-failure
+RestartSec=5
+Environment=OPENCLAW_CONFIG=/data/.openclaw/config.yaml
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

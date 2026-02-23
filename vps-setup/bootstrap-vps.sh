@@ -190,7 +190,7 @@ if ! $SKIP_OPENCLAW; then
         echo "[OK] Setup doc copied to $OPENCLAW_DIR/CLAUDE_CODE_SETUP.md"
     fi
 
-    # Create OpenClaw config stub
+    # Create OpenClaw config
     cat > "$OPENCLAW_DIR/config.yaml" <<'CONFIG'
 # OpenClaw Gateway Configuration
 gateway:
@@ -220,9 +220,23 @@ services:
     config: "/etc/openbot/config.yaml"
 CONFIG
 
+    # Install OpenClaw Python dependencies into the OpenBot venv
+    OPENCLAW_VENV="/opt/openbot/venv"
+    if [[ ! -d "$OPENCLAW_VENV" ]]; then
+        python3 -m venv "$OPENCLAW_VENV"
+    fi
+    "$OPENCLAW_VENV/bin/pip" install --upgrade pip -q
+    "$OPENCLAW_VENV/bin/pip" install -r "$OPENBOT_DIR/openclaw/requirements.txt" -q
+
+    # Install systemd service
+    cp "$OPENBOT_DIR/openclaw/openclaw.service" /etc/systemd/system/openclaw.service
+    systemctl daemon-reload
+    systemctl enable openclaw.service
+    systemctl start openclaw.service || echo "[WARN] OpenClaw failed to start (check logs: journalctl -u openclaw)"
+
     chown -R openbot:openbot "$OPENCLAW_DIR" 2>/dev/null || true
 
-    echo "[OK] OpenClaw gateway configured on port 18789"
+    echo "[OK] OpenClaw gateway installed and started on port 18789"
     echo ""
 else
     echo "=== Step 4: OpenClaw gateway setup (SKIPPED) ==="
@@ -268,6 +282,16 @@ if ! $SKIP_DNA; then
         echo "[OK] DNA Matrix responding on port 8000"
     else
         echo "[WARN] DNA Matrix not responding yet (may need time to start)"
+    fi
+fi
+
+# Check OpenClaw
+if ! $SKIP_OPENCLAW; then
+    sleep 2  # Give service time to start
+    if curl -sf http://localhost:18789/status > /dev/null 2>&1; then
+        echo "[OK] OpenClaw responding on port 18789"
+    else
+        echo "[WARN] OpenClaw not responding yet (check: journalctl -u openclaw)"
     fi
 fi
 
