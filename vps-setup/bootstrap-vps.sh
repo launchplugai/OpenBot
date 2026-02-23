@@ -92,7 +92,7 @@ if [[ -d "$OPENBOT_DIR/.git" ]]; then
     echo "[INFO] OpenBot repo already exists at $OPENBOT_DIR, pulling latest..."
     cd "$OPENBOT_DIR"
     git fetch origin
-    git pull --ff-only origin master || echo "[WARN] Pull failed, continuing with current state"
+    git pull --ff-only || echo "[WARN] Pull failed, continuing with current state"
 else
     echo "[INFO] Cloning OpenBot..."
     git clone "$OPENBOT_REPO" "$OPENBOT_DIR"
