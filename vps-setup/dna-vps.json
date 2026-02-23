@@ -2,9 +2,9 @@
   "name": "dna-vps",
   "description": "Claude Code project for managing OpenBot VPS with DNA Matrix and OpenClaw",
   "ssh": {
-    "host": "YOUR_VPS_IP",
-    "user": "YOUR_SSH_USER",
-    "key": "YOUR_SSH_KEY_PATH",
+    "host": "187.77.211.80",
+    "user": "root",
+    "key": "~/.ssh/openbot_vps",
     "port": 22
   },
   "services": {
