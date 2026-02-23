@@ -1,0 +1,75 @@
+{
+  "name": "dna-vps",
+  "description": "Claude Code project for managing OpenBot VPS with DNA Matrix and OpenClaw",
+  "ssh": {
+    "host": "YOUR_VPS_IP",
+    "user": "YOUR_SSH_USER",
+    "key": "YOUR_SSH_KEY_PATH",
+    "port": 22
+  },
+  "services": {
+    "dna-matrix": {
+      "description": "DNA Matrix — sports parlay risk evaluation engine",
+      "port": 8000,
+      "health_endpoint": "/health",
+      "repo": "https://github.com/launchplugai/DNA",
+      "branch": "main"
+    },
+    "openclaw": {
+      "description": "OpenClaw gateway — agent coordination",
+      "port": 18789,
+      "status_endpoint": "/status"
+    },
+    "openbot": {
+      "description": "OpenBot automation runtime (CLI only)",
+      "install_path": "/opt/openbot",
+      "data_path": "/var/lib/openbot",
+      "config_path": "/etc/openbot/config.yaml",
+      "wrapper": "/usr/local/bin/openbot"
+    }
+  },
+  "agents": {
+    "ralph": {
+      "role": "Repository auditor — clones and tests target repos",
+      "trigger": "openbot run"
+    },
+    "ira": {
+      "role": "Infrastructure monitor — health checks and system status",
+      "trigger": "openbot doctor"
+    },
+    "tess": {
+      "role": "Test analyst — parses receipts and identifies regressions",
+      "trigger": "receipt analysis"
+    }
+  },
+  "commands": {
+    "doctor": "openbot doctor",
+    "run-tests": "openbot run --target-repo https://github.com/launchplugai/DNA --target-branch main --command 'pytest app/tests -v'",
+    "check-dna-health": "curl -s http://localhost:8000/health",
+    "check-openclaw": "curl -s http://localhost:18789/status",
+    "recent-receipts": "ls -lt /var/lib/openbot/receipts/ | head -10",
+    "recent-logs": "ls -lt /var/lib/openbot/logs/ | head -10",
+    "tail-latest-log": "tail -50 $(ls -t /var/lib/openbot/logs/*.log 2>/dev/null | head -1)"
+  },
+  "paths": {
+    "repo": "/opt/openbot",
+    "venv": "/var/lib/openbot/venv",
+    "config": "/etc/openbot/config.yaml",
+    "credentials": "/etc/openbot/credentials.yaml",
+    "logs": "/var/lib/openbot/logs",
+    "receipts": "/var/lib/openbot/receipts",
+    "workdir": "/var/lib/openbot/workdir"
+  },
+  "policies": {
+    "protected_paths": "/opt/openbot/policies/protected_paths.yaml",
+    "escalation_rules": "/opt/openbot/policies/escalation_rules.yaml",
+    "receipt_schema": "/opt/openbot/policies/receipt_schema_v1.json"
+  },
+  "notes": [
+    "DNA Matrix core engine (dna-matrix/core/) is FROZEN — never modify",
+    "OpenBot runs as unprivileged 'openbot' user",
+    "All test runs produce receipt JSON + log artifacts",
+    "Dormant modules (alerts, context, auth, billing, persistence) must NOT be activated",
+    "Expected test results: 831 pass, 9 fail (test_debug.py — intentional)"
+  ]
+}
