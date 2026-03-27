@@ -1,0 +1,65 @@
+# OpenBot Quality Gates - Phase 2
+# These gates MUST pass before actions are allowed
+
+version: v2
+
+# Pre-push gates (all must pass for push to proceed)
+pre_push:
+  - id: tests_pass
+    description: "All tests must pass before pushing"
+    severity: critical
+    required: true
+
+  - id: lint_clean
+    description: "No lint errors before pushing"
+    severity: high
+    required: true
+
+  - id: branch_naming
+    description: "Branch must follow claude/ naming convention"
+    severity: medium
+    required: false
+
+# Pre-merge gates (all must pass for merge to proceed)
+pre_merge:
+  - id: tests_pass
+    description: "All tests must pass"
+    severity: critical
+    required: true
+
+  - id: lint_clean
+    description: "No lint errors"
+    severity: critical
+    required: true
+
+  - id: po_approval
+    description: "Product Owner must approve merge to production"
+    severity: critical
+    required: true
+
+# Worker readiness gates (checked on worker session start)
+worker_readiness:
+  - id: auth_valid
+    description: "Worker has valid authentication"
+    severity: critical
+    required: true
+
+  - id: workspace_clean
+    description: "Worker workspace has no uncommitted changes"
+    severity: high
+    required: true
+
+  - id: remote_quarantine
+    description: "Git remote points to quarantine repo, NOT production"
+    severity: critical
+    required: true
+
+  - id: memory_readable
+    description: "Shared memory files are accessible"
+    severity: medium
+    required: true
+
+  - id: taskboard_accessible
+    description: "Task board is readable and writable"
+    severity: medium
+    required: true

@@ -12,6 +12,7 @@ import urllib.error
 from pathlib import Path
 from typing import Optional, Tuple
 
+from openbot.enforce import Enforcer
 from openbot.policy import PolicyLoader
 from openbot.receipts import Receipt, ReceiptWriter
 from openbot.utils import (
@@ -126,6 +127,9 @@ class Runner:
         self.policy_loader = PolicyLoader(policies_dir)
         self.policy_loader.load_all()
 
+        # Initialize enforcer (Phase 2: policies are enforced)
+        self.enforcer = Enforcer(policies_dir)
+
         # Initialize receipt
         self.receipt = Receipt()
         self.receipt.run_id = self.run_id
@@ -198,7 +202,10 @@ class Runner:
                     setup_command=self.setup_command
                 )
 
-                # Step 4: Optional health check
+                # Step 4: Validate constraints (Phase 2 enforcement)
+                self._validate_constraints(logger, test_exit_code)
+
+                # Step 5: Optional health check
                 if self.health_url:
                     self._run_health_check(logger)
 
@@ -287,6 +294,32 @@ class Runner:
         # Return combined output for parsing
         combined_output = stdout + "\n" + stderr
         return exit_code, combined_output
+
+    def _validate_constraints(self, logger: Logger, test_exit_code: int):
+        """Phase 2: Validate run against constitutional constraints."""
+        logger.info("Validating constitutional constraints...")
+
+        # Check remote is quarantine (not production)
+        if self.target_dir.exists():
+            from openbot.utils import run_command
+            exit_code, stdout, _ = run_command(
+                "git remote get-url origin", cwd=self.target_dir
+            )
+            if exit_code == 0 and stdout.strip():
+                allowed, violation = self.enforcer.check_remote(stdout.strip())
+                if not allowed:
+                    logger.error(f"CONSTRAINT VIOLATION: {violation.message}")
+                    self.receipt.add_error(f"Constraint violation: {violation.message}")
+
+        # Log enforcement summary
+        summary = self.enforcer.get_violation_summary()
+        if summary["total"] > 0:
+            logger.warn(
+                f"Constraint check: {summary['total']} violation(s) "
+                f"(critical={summary['by_severity']['critical']})"
+            )
+        else:
+            logger.info("Constraint check: PASS (0 violations)")
 
     def _run_health_check(self, logger: Logger):
         """Run optional health check."""
